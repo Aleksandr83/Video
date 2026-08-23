@@ -87,7 +87,12 @@ npm run build          # output in js/ (video-main.js) and css/ (video-main.css)
 # 3. Deploy the app
 #    Copy/symlink this folder to nextcloud/apps/video
 #    (the folder name must match the app id "video"),
-#    then in Nextcloud: Settings → Apps → enable "Video".
+#    then enable it either in the UI:
+#       Nextcloud → Settings → Apps → enable "Video"
+#    or from the command line (run from the Nextcloud root, as the web user):
+#       sudo -u www-data php occ app:enable video
+#    Optionally run the schema/migration step for the playlist tables:
+#       sudo -u www-data php occ upgrade
 ```
 
 ## Tests
