@@ -7,6 +7,7 @@ namespace OCA\Video\Tests\Unit\Controller;
 use OCA\Video\Controller\VideoController;
 use OCA\Video\Service\SettingsService;
 use OCA\Video\Service\VideoService;
+use OCA\Video\Service\ViewService;
 use OCP\AppFramework\Http\DataResponse;
 use PHPUnit\Framework\TestCase;
 
@@ -28,11 +29,13 @@ class VideoControllerTest extends TestCase {
         $videos->method('getSubfolders')->willReturn([]);
         $settings = $this->createMock(SettingsService::class);
         $settings->method('hasFolders')->willReturn(false);
+        $views = $this->createMock(ViewService::class);
+        $views->method('getViewCounts')->willReturn([]);
         $request = $this->createMock(\OCP\IRequest::class);
         $rootFolder = $this->createMock(\OCP\Files\IRootFolder::class);
         $rootFolder->method('getUserFolder')->willReturn($this->createMock(\OCP\Files\Folder::class));
 
-        $controller = new VideoController('video', $request, $videos, $settings, $rootFolder, 'alice');
+        $controller = new VideoController('video', $request, $videos, $settings, $views, $rootFolder, 'alice');
         $result = $controller->index();
 
         $this->assertInstanceOf(DataResponse::class, $result);
@@ -41,6 +44,7 @@ class VideoControllerTest extends TestCase {
             'currentFolder' => '',
             'subfolders' => [],
             'videos' => [],
+            'views' => [],
         ], $result->getData());
     }
 
@@ -53,11 +57,12 @@ class VideoControllerTest extends TestCase {
         $videos->expects($this->once())->method('getSubfolders')->with($this->identicalTo($userFolder), '/Movies');
         $settings = $this->createMock(SettingsService::class);
         $settings->method('hasFolders')->willReturn(true);
+        $views = $this->createMock(ViewService::class);
         $request = $this->createMock(\OCP\IRequest::class);
         $rootFolder = $this->createMock(\OCP\Files\IRootFolder::class);
         $rootFolder->method('getUserFolder')->willReturn($userFolder);
 
-        $controller = new VideoController('video', $request, $videos, $settings, $rootFolder, 'alice');
+        $controller = new VideoController('video', $request, $videos, $settings, $views, $rootFolder, 'alice');
         $result = $controller->index('/Movies');
 
         $this->assertInstanceOf(DataResponse::class, $result);

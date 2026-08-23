@@ -15,6 +15,7 @@ return [
         ['name' => 'settings#index', 'url' => '/settings', 'verb' => 'GET'],
         ['name' => 'settings#update', 'url' => '/settings', 'verb' => 'PUT'],
         ['name' => 'video#index', 'url' => '/videos', 'verb' => 'GET'],
+        ['name' => 'view#increment', 'url' => '/views', 'verb' => 'POST'],
         ['name' => 'playlist#index', 'url' => '/playlists', 'verb' => 'GET'],
         ['name' => 'playlist#create', 'url' => '/playlists', 'verb' => 'POST'],
         ['name' => 'playlist#show', 'url' => '/playlists/{id}', 'verb' => 'GET'],

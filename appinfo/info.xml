@@ -5,7 +5,7 @@
     <name>Video</name>
     <summary>Local YouTube: video player and playlists for Nextcloud</summary>
     <description><![CDATA[Video turns your Nextcloud storage into a local YouTube: browse video files, play them right in the browser and manage playlists.]]></description>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
     <icon>img/app.svg</icon>
     <licence>agpl</licence>
     <author>Video Team</author>

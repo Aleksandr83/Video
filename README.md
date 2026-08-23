@@ -91,7 +91,10 @@ npm run build          # output in js/ (video-main.js) and css/ (video-main.css)
 #       Nextcloud → Settings → Apps → enable "Video"
 #    or from the command line (run from the Nextcloud root, as the web user):
 #       sudo -u www-data php occ app:enable video
-#    Optionally run the schema/migration step for the playlist tables:
+#    Enabling the app runs its database migrations automatically (a fresh
+#    install needs no extra step).
+#    Only when upgrading an EXISTING installation to a newer app version do the
+#    new migrations need to be applied explicitly:
 #       sudo -u www-data php occ upgrade
 ```
 

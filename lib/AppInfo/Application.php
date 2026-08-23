@@ -6,8 +6,10 @@ namespace OCA\Video\AppInfo;
 
 use OCA\Video\Db\IPlaylistItemRepository;
 use OCA\Video\Db\IPlaylistRepository;
+use OCA\Video\Db\IVideoViewRepository;
 use OCA\Video\Db\PlaylistItemRepository;
 use OCA\Video\Db\PlaylistRepository;
+use OCA\Video\Db\VideoViewRepository;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
@@ -43,6 +45,13 @@ class Application extends App implements IBootstrap {
             IPlaylistItemRepository::class,
             static function (ContainerInterface $c): PlaylistItemRepository {
                 return new PlaylistItemRepository($c->get(IDBConnection::class));
+            },
+        );
+
+        $context->registerService(
+            IVideoViewRepository::class,
+            static function (ContainerInterface $c): VideoViewRepository {
+                return new VideoViewRepository($c->get(IDBConnection::class));
             },
         );
     }

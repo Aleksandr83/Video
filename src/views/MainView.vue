@@ -59,7 +59,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { getVideos } from '../api/videos'
 import { davFileUrl } from '../utils/videoUrl'
 import { clearPosition } from '../utils/resume'
-import { getViewCounts } from '../utils/viewCount'
+import { getViewCounts, setViewCounts } from '../utils/viewCount'
 import VideoPlayer from '../components/VideoPlayer.vue'
 import AddToPlaylist from '../components/AddToPlaylist.vue'
 import VideoThumb from '../components/VideoThumb.vue'
@@ -172,6 +172,7 @@ async function load() {
         configured.value = data.configured
         subfolders.value = data.subfolders || []
         videos.value = data.videos || []
+        setViewCounts(data.views || {})
     } catch (e) {
         error.value = t('videosLoadError')
         configured.value = false

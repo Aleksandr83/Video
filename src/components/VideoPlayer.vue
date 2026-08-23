@@ -32,10 +32,16 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'ended'])
 
+// How long a track may stay stuck in a buffering/stalled state before we force
+// a reload. A dropped WebDAV stream freezes the video, and pause+play cannot
+// restart it — only a fresh load of the source can.
+const STALL_RECOVERY_DELAY = 10000
+
 const videoRef = ref(null)
 let player = null
 let saveTimer = null
 let retryTimer = null
+let stallTimer = null
 // The track key the player is currently playing (for resume bookkeeping).
 let currentTrackKey = ''
 // The src for which a view has already been counted (one view per track).
@@ -63,6 +69,10 @@ onMounted(() => {
     video.addEventListener('pause', onPause)
     video.addEventListener('timeupdate', onTimeupdate)
     video.addEventListener('ended', () => emit('ended'))
+    // The stream stopped delivering data (network hiccup). Watch for it and
+    // recover with a reload if playback does not resume on its own.
+    video.addEventListener('waiting', onStall)
+    video.addEventListener('stalled', onStall)
 
     document.addEventListener('keydown', onKeydown)
 
@@ -139,6 +149,7 @@ function onPause() {
 // per track (used to sort the Videos page by popularity).
 function onPlaying() {
     clearRetry()
+    clearStall()
     if (countedSrc !== props.src) {
         countedSrc = props.src
         incrementView(props.trackKey || props.src)
@@ -157,7 +168,7 @@ function scheduleRetry() {
     }
     retryTimer = setTimeout(() => {
         retryTimer = null
-        retryCurrentTrack()
+        reloadCurrentTrack()
     }, 30000)
 }
 
@@ -168,11 +179,35 @@ function clearRetry() {
     }
 }
 
-function retryCurrentTrack() {
+// Playback is stuck buffering (waiting/stalled) and does not resume on its
+// own. A dead stream cannot be restarted with pause+play — only a fresh load
+// of the source recovers it, so do that automatically.
+function onStall() {
+    if (stallTimer) {
+        return
+    }
+    stallTimer = setTimeout(() => {
+        stallTimer = null
+        reloadCurrentTrack()
+    }, STALL_RECOVERY_DELAY)
+}
+
+function clearStall() {
+    if (stallTimer) {
+        clearTimeout(stallTimer)
+        stallTimer = null
+    }
+}
+
+// Re-request the current source and resume playback from the saved position.
+function reloadCurrentTrack() {
     const video = videoRef.value
     if (!video || !props.src) {
         return
     }
+    clearRetry()
+    clearStall()
+    saveCurrentPosition()
     video.src = props.src
     try {
         video.load()
@@ -220,6 +255,7 @@ onBeforeUnmount(() => {
         clearTimeout(saveTimer)
     }
     clearRetry()
+    clearStall()
     document.removeEventListener('keydown', onKeydown)
     saveCurrentPosition()
     if (player) {

@@ -1,31 +1,15 @@
 import { ref } from 'vue'
+import { incrementViewRequest } from '../api/views'
 
 /**
- * Per-user view counters for videos, persisted in localStorage.
+ * Per-user video view counters, stored on the server so the popularity order
+ * is shared across browsers and devices.
  *
- * A "view" is counted once per track when playback actually starts. The
- * counters are used on the Videos page to sort cards by popularity (most
- * watched first).
+ * The reactive map is fed from the videos API response (setViewCounts) and
+ * updated optimistically when a view is counted (incrementView persists it to
+ * the server).
  */
-const KEY = 'video-views'
-const counts = ref(load())
-
-function load() {
-    try {
-        const raw = localStorage.getItem(KEY)
-        return raw ? JSON.parse(raw) : {}
-    } catch (e) {
-        return {}
-    }
-}
-
-function save() {
-    try {
-        localStorage.setItem(KEY, JSON.stringify(counts.value))
-    } catch (e) {
-        // Ignore storage errors (e.g. disabled storage).
-    }
-}
+const counts = ref({})
 
 /** Reactive map of path -> number of views (shared across the app). */
 export function getViewCounts() {
@@ -37,16 +21,26 @@ export function getViewCount(path) {
     return path ? counts.value[path] || 0 : 0
 }
 
-/** Increment the view counter for a path. */
-export function incrementView(path) {
+/** Replace the counters, e.g. from the videos API response. */
+export function setViewCounts(map) {
+    counts.value = map || {}
+}
+
+/** Increment the counter for a path and persist it on the server. */
+export async function incrementView(path) {
     if (!path) {
         return
     }
     counts.value[path] = (counts.value[path] || 0) + 1
-    save()
+    try {
+        await incrementViewRequest(path)
+    } catch (e) {
+        // The server rejected it — revert the optimistic increment.
+        counts.value[path] = Math.max(0, (counts.value[path] || 0) - 1)
+    }
 }
 
-/** Reload the counters from storage (used by tests). */
+/** Reset to an empty counter map (used by tests). */
 export function resetViewCounts() {
-    counts.value = load()
+    counts.value = {}
 }

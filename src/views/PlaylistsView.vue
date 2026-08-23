@@ -14,7 +14,7 @@
         <div v-if="loading" class="playlists__loading">{{ t('loading') }}</div>
         <div v-else-if="error" class="playlists__error">{{ error }}</div>
 
-        <div v-if="!loading && playlists.length === 0" class="playlists__empty">{{ t('noPlaylists') }}</div>
+        <div v-if="!loading && !error && playlists.length === 0" class="playlists__empty">{{ t('noPlaylists') }}</div>
 
         <ul v-else class="playlists__list">
             <li v-for="pl in playlists" :key="pl.id" class="playlists__item" :class="{ 'playlists__item--active': pl.id === selectedId }">
@@ -49,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import {
     getPlaylists,
     createPlaylist,
@@ -74,7 +74,33 @@ const renaming = ref(null)
 const renameName = ref('')
 const playing = ref(null)
 
+// A transient network/DNS failure must not leave the page stuck: retry loading
+// the playlist list every 10 seconds until it succeeds.
+const LOAD_RETRY_DELAY = 10000
+let loadRetryTimer = null
+
 onMounted(load)
+
+onBeforeUnmount(() => {
+    clearLoadRetry()
+})
+
+function scheduleLoadRetry() {
+    if (loadRetryTimer) {
+        return
+    }
+    loadRetryTimer = setTimeout(() => {
+        loadRetryTimer = null
+        load()
+    }, LOAD_RETRY_DELAY)
+}
+
+function clearLoadRetry() {
+    if (loadRetryTimer) {
+        clearTimeout(loadRetryTimer)
+        loadRetryTimer = null
+    }
+}
 
 async function playPlaylist(playlist) {
     const { data } = await getPlaylist(playlist.id)
@@ -90,8 +116,10 @@ async function load() {
     try {
         const { data } = await getPlaylists()
         playlists.value = data.playlists || []
+        clearLoadRetry()
     } catch (e) {
         error.value = t('playlistsLoadError')
+        scheduleLoadRetry()
     } finally {
         loading.value = false
     }

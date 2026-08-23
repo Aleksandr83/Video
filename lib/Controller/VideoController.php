@@ -7,6 +7,7 @@ namespace OCA\Video\Controller;
 use OCA\Video\Db\VideoItem;
 use OCA\Video\Service\SettingsService;
 use OCA\Video\Service\VideoService;
+use OCA\Video\Service\ViewService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\Files\IRootFolder;
@@ -21,6 +22,7 @@ class VideoController extends Controller {
         IRequest $request,
         private VideoService $videos,
         private SettingsService $settings,
+        private ViewService $views,
         private IRootFolder $rootFolder,
         private ?string $userId,
     ) {
@@ -44,6 +46,7 @@ class VideoController extends Controller {
                 static fn (VideoItem $video): array => $video->toArray(),
                 $this->videos->getVideos($userFolder, $folder),
             ),
+            'views' => $this->views->getViewCounts($this->userId ?? ''),
         ]);
     }
 }
