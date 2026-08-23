@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+    <id>video</id>
+    <name>Video</name>
+    <summary>Local YouTube: video player and playlists for Nextcloud</summary>
+    <description><![CDATA[Video turns your Nextcloud storage into a local YouTube: browse video files, play them right in the browser and manage playlists.]]></description>
+    <version>0.2.0</version>
+    <icon>img/app.svg</icon>
+    <licence>agpl</licence>
+    <author>Video Team</author>
+    <namespace>Video</namespace>
+    <category>multimedia</category>
+    <website>https://example.org</website>
+    <bugs>https://example.org</bugs>
+    <repository type="git">https://gitea.lo/lukin.aleksandr/Video</repository>
+    <dependencies>
+        <nextcloud min-version="30" max-version="34"/>
+    </dependencies>
+    <navigations>
+        <navigation>
+            <name>Video</name>
+            <route>video.page.index</route>
+            <order>10</order>
+        </navigation>
+    </navigations>
+</info>

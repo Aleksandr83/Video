@@ -1,0 +1,32 @@
+{
+    "name": "nextcloud/video",
+    "description": "Video player and playlists for Nextcloud (local YouTube)",
+    "type": "project",
+    "license": "AGPL-3.0-or-later",
+    "keywords": ["nextcloud", "video", "player", "playlist"],
+    "require": {
+        "php": ">=8.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5",
+        "nextcloud/ocp": "dev-stable34"
+    },
+    "autoload": {
+        "psr-4": {
+            "OCA\\Video\\": "lib/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "OCA\\Video\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test:unit": "phpunit --configuration phpunit.xml",
+        "lint": "php -l lib/ && find lib -name '*.php' -print0 | xargs -0 -n1 php -l"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

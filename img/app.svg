@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" height="32" width="32" viewBox="0 0 32 32">
+  <!-- Video player icon: rounded screen with a play button -->
+  <rect width="32" height="32" rx="7" fill="#0082c9"/>
+  <rect x="4.5" y="7" width="23" height="18" rx="3" fill="#ffffff"/>
+  <path d="M13 11.2v9.6l8.2-4.8z" fill="#0082c9"/>
+</svg>

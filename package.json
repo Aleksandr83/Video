@@ -1,0 +1,27 @@
+{
+    "name": "video",
+    "version": "0.1.0",
+    "description": "Nextcloud video player and playlists (local YouTube)",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "test:unit": "vitest run",
+        "test:watch": "vitest"
+    },
+    "dependencies": {
+        "@nextcloud/axios": "^2.5.0",
+        "@nextcloud/router": "^3.0.1",
+        "plyr": "^3.7.8",
+        "vue": "^3.4.31",
+        "vue-router": "^4.4.0"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-vue": "^5.0.5",
+        "@vue/test-utils": "^2.4.6",
+        "jsdom": "^24.1.1",
+        "vite": "^5.3.3",
+        "vitest": "^1.6.0"
+    }
+}
