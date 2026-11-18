@@ -8,7 +8,7 @@ const translations = {
     ru: {
         videosNav: 'Видео',
         settingsNav: 'Настройки',
-        appLoading: 'Video app is loading…',
+        appLoading: 'Приложение Video загружается…',
         settingsTitle: 'Настройки поиска видео',
         settingsDescription: 'Выберите папки Nextcloud, в которых будет выполняться поиск видеофайлов. Вне выбранных папок поиск не ведётся.',
         settingsEmpty: 'Папки не настроены. Добавьте хотя бы одну папку.',

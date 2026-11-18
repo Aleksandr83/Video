@@ -7,13 +7,19 @@
             :title="current.name"
             :track-key="current.path"
             :resume="!playFromStart"
+            :has-prev-track="hasPrevTrack"
+            :has-next-track="hasNextTrack"
             @ended="nextAuto"
+            @prev="prevManual"
+            @next="nextManual"
+            @close="close"
         />
 
         <div class="queue-player__controls">
             <button
-                class="queue-player__icon-btn queue-player__prev"
-                :disabled="!current"
+                class="queue-player__icon-btn button-vue queue-player__prev"
+                type="button"
+                :disabled="!hasPrevTrack"
                 :title="t('prev')"
                 :aria-label="t('prev')"
                 @click="prevManual"
@@ -23,8 +29,9 @@
                 </svg>
             </button>
             <button
-                class="queue-player__icon-btn queue-player__next"
-                :disabled="!current"
+                class="queue-player__icon-btn button-vue queue-player__next"
+                type="button"
+                :disabled="!hasNextTrack"
                 :title="t('next')"
                 :aria-label="t('next')"
                 @click="nextManual"
@@ -34,7 +41,8 @@
                 </svg>
             </button>
             <button
-                class="queue-player__icon-btn queue-player__shuffle"
+                class="queue-player__icon-btn button-vue queue-player__shuffle"
+                type="button"
                 :class="{ 'queue-player__control--active': shuffle }"
                 :title="shuffle ? t('shuffleOn') : t('shuffleOff')"
                 :aria-pressed="shuffle"
@@ -45,7 +53,8 @@
                 </svg>
             </button>
             <button
-                class="queue-player__icon-btn queue-player__repeat"
+                class="queue-player__icon-btn button-vue queue-player__repeat"
+                type="button"
                 :class="{ 'queue-player__control--active': repeat }"
                 :title="repeat ? t('repeatOn') : t('repeatOff')"
                 :aria-pressed="repeat"
@@ -56,7 +65,17 @@
                 </svg>
             </button>
             <span v-if="current" class="queue-player__current">{{ current.name }}</span>
-            <button class="queue-player__close" :title="t('close')" @click="close">✕</button>
+            <button
+                class="queue-player__icon-btn button-vue queue-player__close"
+                type="button"
+                :title="t('close')"
+                :aria-label="t('close')"
+                @click="close"
+            >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+                    <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+            </button>
         </div>
 
         <ul v-if="queue.length" class="queue-player__list">
@@ -75,7 +94,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import VideoPlayer from './VideoPlayer.vue'
 import { davFileUrl } from '../utils/videoUrl'
 import { clearPosition } from '../utils/resume'
@@ -89,7 +108,6 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const playFromStart = ref(false)
-
 const {
     queue,
     current,
@@ -105,6 +123,11 @@ const {
     toggleRepeat,
     play,
 } = usePlaybackQueue(props.items)
+
+// Neighbour tracks for the prev/next buttons in the player's fullscreen row.
+// Same rules as the buttons below and the media keys, so all three agree.
+const hasPrevTrack = computed(() => previousTrack() !== null)
+const hasNextTrack = computed(() => nextTrack() !== null)
 
 onMounted(() => {
     play()
@@ -133,25 +156,33 @@ function nextAuto() {
     next()
 }
 
-// Manual track changes keep the resume feature enabled.
+// Manual track changes keep the resume feature enabled. They are shared by the
+// buttons under the player, the prev/next buttons in the player's fullscreen row
+// and the media keys, so all three obey the same neighbour rule.
 function prevManual() {
+    const target = previousTrack()
+    if (!target) {
+        // No neighbour: the queue stays as it is. This is what makes a pressed
+        // MediaTrackPrevious on the first track (repeat off) do nothing.
+        return
+    }
     // When going back to a track, drop its saved position so it starts from
     // the beginning instead of resuming at (near) the end.
-    const target = previousTrack()
-    if (target) {
-        clearPosition(target.path)
-    }
+    clearPosition(target.path)
     playFromStart.value = false
     prev()
 }
 
 function nextManual() {
+    const target = nextTrack()
+    if (!target) {
+        // No neighbour: without repeat the end of the queue is the end — the
+        // playing window must not disappear from a stray click or media key.
+        return
+    }
     // When going forward to a track, drop its saved position so it starts
     // from the beginning instead of resuming at (near) the end.
-    const target = nextTrack()
-    if (target) {
-        clearPosition(target.path)
-    }
+    clearPosition(target.path)
     playFromStart.value = false
     next()
 }
@@ -161,17 +192,28 @@ function jump(index) {
     playIndex(index)
 }
 
-// The track that prev() will land on (null when it stays on the current one).
+// The track that prev() will land on (null when there is no previous one).
+// Mirrors nextTrack(): with repeat on, the first track goes back to the last
+// one of the current order — which is the shuffled order when shuffle is on.
 function previousTrack() {
+    if (cursor.value < 0) {
+        return null
+    }
     if (cursor.value > 0) {
         const target = order.value[cursor.value - 1]
         return queue.value[target] || null
     }
+    if (repeat.value && order.value.length) {
+        return queue.value[order.value[order.value.length - 1]] || null
+    }
     return null
 }
 
-// The track that next() will land on (null when the queue stops).
+// The track that next() will land on (null when the queue has nothing left).
 function nextTrack() {
+    if (cursor.value < 0) {
+        return null
+    }
     if (cursor.value < order.value.length - 1) {
         const target = order.value[cursor.value + 1]
         return queue.value[target] || null
@@ -203,12 +245,25 @@ function close() {
     flex-wrap: wrap;
 }
 
+/* `button-vue` in the markup is not a style hook. Nextcloud's core CSS (core/css/server.css)
+   styles every plain `button:not(.button-vue,[class^=vs__])`: min-height:
+   var(--default-clickable-area) (44px), margin: 3px, width: 130px, padding: 7px 14px,
+   border-radius: 4px, `outline: none` on :hover/:focus and a white background on :active — and it
+   wins for every property this file does not declare itself. Those selectors deliberately skip
+   `.button-vue`, so these buttons carry that class, and the box properties are declared here too.
+   Measured in stage 27.1 with the real Nextcloud server.css: without this the row buttons were 36x44
+   with 3px margins and turned white while pressed. */
 .queue-player__icon-btn {
+    appearance: none;
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 36px;
     height: 36px;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
     padding: 0;
     border: none;
     border-radius: 8px;

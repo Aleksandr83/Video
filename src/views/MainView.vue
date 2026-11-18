@@ -25,8 +25,12 @@
                 :title="playing.name"
                 :track-key="playing.path"
                 :resume="!playFromStart"
+                :has-prev-track="hasPrevTrack"
+                :has-next-track="hasNextTrack"
                 @close="playing = null"
                 @ended="onEnded"
+                @prev="prevManual"
+                @next="nextManual"
             />
 
             <div v-if="subfolders.length" class="main-view__folders">
@@ -132,13 +136,24 @@ function onKeydown(event) {
     }
 }
 
-function nextManual() {
-    const list = filteredVideos.value
-    if (!playing.value || !list.length) {
-        return
+// Position of the playing clip in the filtered list (-1 when it is not there).
+// Shared by the prev/next navigation and by the player's prev/next buttons, so
+// both use the same neighbour rules.
+const playingIndex = computed(() => {
+    if (!playing.value) {
+        return -1
     }
-    const index = list.findIndex((video) => video.path === playing.value.path)
-    const nextVideo = index >= 0 ? list[index + 1] : undefined
+    return filteredVideos.value.findIndex((video) => video.path === playing.value.path)
+})
+
+const hasPrevTrack = computed(() => playingIndex.value > 0)
+const hasNextTrack = computed(
+    () => playingIndex.value >= 0 && playingIndex.value < filteredVideos.value.length - 1,
+)
+
+function nextManual() {
+    const index = playingIndex.value
+    const nextVideo = index >= 0 ? filteredVideos.value[index + 1] : undefined
     if (nextVideo) {
         // When going forward to a video, drop its saved position so it starts
         // from the beginning instead of resuming at (near) the end.
@@ -149,12 +164,8 @@ function nextManual() {
 }
 
 function prevManual() {
-    const list = filteredVideos.value
-    if (!playing.value || !list.length) {
-        return
-    }
-    const index = list.findIndex((video) => video.path === playing.value.path)
-    const prevVideo = index > 0 ? list[index - 1] : undefined
+    const index = playingIndex.value
+    const prevVideo = index > 0 ? filteredVideos.value[index - 1] : undefined
     if (prevVideo) {
         // When going back to a video, drop its saved position so it starts
         // from the beginning instead of resuming at (near) the end.
@@ -211,13 +222,12 @@ function playVideo(video) {
 // like YouTube. Auto-advanced tracks start from the beginning. Stops when the
 // end of the list is reached.
 function onEnded() {
-    const list = filteredVideos.value
-    if (!playing.value || !list.length) {
+    if (!playing.value || !filteredVideos.value.length) {
         playing.value = null
         return
     }
-    const index = list.findIndex((video) => video.path === playing.value.path)
-    const nextVideo = index >= 0 ? list[index + 1] || null : null
+    const index = playingIndex.value
+    const nextVideo = index >= 0 ? filteredVideos.value[index + 1] || null : null
     playFromStart.value = true
     playing.value = nextVideo
 }

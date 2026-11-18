@@ -2,9 +2,9 @@
 node_modules/
 vendor/
 
-# Build output
-js/
-css/
+# Build output (only the app-level bundles; a bare `js/` would also swallow tests/js/)
+/js/
+/css/
 *.map
 
 # PHPUnit cache

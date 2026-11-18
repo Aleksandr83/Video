@@ -10,7 +10,19 @@ browsing a video list, folder navigation, search, a built-in player and playlist
 - **Settings (admin)**: choose Nextcloud folders to scan for videos, with recursion
   (including subfolders) configured separately for each folder; **no search is performed
   outside the selected folders**. Until folders are configured — an empty list with a hint
-- Player (Plyr): play/pause, seeking, volume, fullscreen mode, speed, subtitles (WebVTT)
+- Player (Plyr): play/pause, seeking, volume, fullscreen mode, speed, subtitles (WebVTT).
+  In fullscreen on a phone the player follows the shape of the video: wide videos are shown
+  in landscape (the screen is asked to rotate, and if the browser or the system refuses, the
+  player rotates itself), vertical videos stay in portrait
+- **Track navigation in the player row**: prev/next buttons are added right after play/pause in
+  Plyr's control bar and are visible only in fullscreen (outside fullscreen the queue row under
+  the player already has them). A button is dimmed and inert when there is no neighbour to go to.
+  Available on both screens — "Playlists" (queue) and "Videos" (the card list).
+- **Control bar in a narrow player** (a phone, both fullscreen and the ordinary player): the seek
+  bar and the time get their own row above the buttons instead of being squeezed to 35-90 px inside
+  the button row. The threshold is the width of the player (600 px), so a wide desktop layout keeps
+  Plyr's single-row bar. In fullscreen the Picture-in-Picture button is hidden — otherwise the
+  exit-fullscreen button wraps onto a row of its own.
 - **Playlists**: create, save, open, add/remove files, reorder
 - Playback logic: auto-advance to the next file, shuffle, loop the playlist
 - Resume playback from where you left off (localStorage)
@@ -104,4 +116,14 @@ npm run build          # output in js/ (video-main.js) and css/ (video-main.css)
 composer test:unit      # PHPUnit (backend)
 npm run test:unit       # Vitest (frontend)
 ```
+
+## Development conventions
+
+- Comments in code, scripts, CSS and configuration files are written in **English** — the project is
+  international. The `plan/` and `docs/` folders are the exception: they are maintained in Russian.
+- The rule covers comments only. Data strings — localization dictionaries (`src/i18n.js`) and other UI
+  text — stay in their own language and are not translated.
+- `README.md` and commit messages are in English as well.
+- The convention is enforced by code review; an automated lint or test for comment language is
+  deliberately not part of the toolchain.
 

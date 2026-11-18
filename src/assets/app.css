@@ -9,3 +9,171 @@
     width: 100%;
     height: 100%;
 }
+
+/* -------------------------------------------------------------------------
+   Fullscreen landscape fallback (Android).
+
+   Android rotates the screen automatically only when the *media element* goes
+   fullscreen, but Plyr fullscreens its wrapper (div.plyr) to keep its control
+   bar, and screen.orientation.lock() is ignored when the user has turned system
+   auto-rotate off. So when the browser could not rotate the device, the player
+   tags the fullscreen element with the class from LANDSCAPE_FALLBACK_CLASS
+   (src/utils/fullscreenOrientation.js) and this rule rotates that element itself.
+
+   The media query is the safety switch: it matches only while the viewport is
+   portrait on a touch device. If the browser did rotate the screen (or the user
+   physically turns the phone), the viewport becomes landscape, the rule stops
+   applying and the video is shown unrotated — no double rotation.
+
+   This is global CSS on purpose: div.plyr is created by Plyr at runtime, so the
+   scoped styles of VideoPlayer.vue do not reach it.
+   ------------------------------------------------------------------------- */
+@media (orientation: portrait) and (pointer: coarse) {
+    .plyr:fullscreen.video-fullscreen--rotate,
+    .plyr:-webkit-full-screen.video-fullscreen--rotate,
+    .plyr--fullscreen-fallback.video-fullscreen--rotate {
+        position: fixed;
+        inset: auto;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) rotate(90deg);
+        transform-origin: center center;
+        /* The box is turned by 90 degrees, so its own width has to be the height
+           of the screen and its own height the width of the screen. */
+        width: 100vh;
+        height: 100vw;
+        min-width: 0;
+        max-width: none;
+        max-height: none;
+        margin: 0;
+    }
+}
+
+/* -------------------------------------------------------------------------
+   Fullscreen control row: prev / next (task 2).
+
+   Plyr 3.7.8 has no prev/next controls at all, so the app adds its own buttons to
+   Plyr's control bar right after play/pause (src/utils/plyrTrackButtons.js).
+   The buttons are always in the DOM — the stylesheet decides their visibility:
+   fullscreen only, because outside fullscreen the queue button row under the
+   player already provides them.
+
+   Every way Plyr can end up fullscreen is listed: the standard pseudo-class form,
+   the -webkit- variant and Plyr's own CSS fallback (for browsers that do not give
+   native fullscreen). Attribute and class names come from the module — it is the
+   single source of those names (DRY).
+   ------------------------------------------------------------------------- */
+.plyr__controls [data-video-track] {
+    display: none;
+}
+
+.plyr:fullscreen .plyr__controls [data-video-track],
+.plyr:-webkit-full-screen .plyr__controls [data-video-track],
+.plyr--fullscreen-fallback .plyr__controls [data-video-track] {
+    display: inline-block;
+}
+
+/* Gap between play/pause and prev. Plyr gives its `.plyr__controls__item` only
+   calc(--plyr-control-spacing / 4) = 2.5 px — on a phone play/pause, prev and next
+   merged into one visual block (measured: 2-3 px between the buttons). prev takes a
+   full Plyr token; between prev and next Plyr's spacing stays — they read as one
+   "previous track / next track" pair, and spare pixels are expensive in a narrow row. */
+.plyr:fullscreen .plyr__controls [data-video-track='prev'],
+.plyr:-webkit-full-screen .plyr__controls [data-video-track='prev'],
+.plyr--fullscreen-fallback .plyr__controls [data-video-track='prev'] {
+    margin-left: var(--plyr-control-spacing, 10px);
+}
+
+/* The free space in the row: Plyr puts it after the first control
+   (`.plyr__controls__item:first-child { margin-right: auto }`). Once prev/next are
+   added after play/pause it is needed AFTER next — otherwise the new buttons move
+   into the right-hand group and lose their link to play/pause. :has() keeps the
+   familiar bar intact when those buttons are not in the DOM. */
+.plyr:fullscreen .plyr__controls:has([data-video-track]) .plyr__controls__item:first-child,
+.plyr:-webkit-full-screen .plyr__controls:has([data-video-track]) .plyr__controls__item:first-child,
+.plyr--fullscreen-fallback .plyr__controls:has([data-video-track]) .plyr__controls__item:first-child {
+    margin-right: 0;
+}
+
+.plyr:fullscreen .plyr__controls [data-video-track='next'],
+.plyr:-webkit-full-screen .plyr__controls [data-video-track='next'],
+.plyr--fullscreen-fallback .plyr__controls [data-video-track='next'] {
+    margin-right: auto;
+}
+
+/* In fullscreen the bar on a ~360-430 px phone: nine controls did not fit into one
+   row and the exit-fullscreen button wrapped onto a row of its own. The Plyr PiP
+   button sits right before the fullscreen button and brings no use in fullscreen
+   (the browser shows its own system panels), so it is hidden in fullscreen. Outside
+   fullscreen PiP stays. */
+.plyr:fullscreen .plyr__controls [data-plyr='pip'],
+.plyr:-webkit-full-screen .plyr__controls [data-plyr='pip'],
+.plyr--fullscreen-fallback .plyr__controls [data-plyr='pip'] {
+    display: none;
+}
+
+.plyr__controls [data-video-track][disabled] {
+    opacity: 0.35;
+    cursor: default;
+}
+
+/* -------------------------------------------------------------------------
+   Two rows in a narrow player — in fullscreen and in the ordinary phone player.
+
+   In portrait fullscreen on a phone the Plyr row has ~360-430 px for nine controls:
+   the seek bar and the time get squeezed and sit in the same row as the buttons,
+   right against the bottom edge of the screen. Here the seek bar together with the
+   time get their own row ABOVE the buttons. In a wide window (desktop, landscape
+   phone) the bar stays single-row — the way Plyr intended it.
+
+   The same is needed outside fullscreen: on a phone the ordinary player is just as
+   narrow, and there the seek bar was squeezed to 35-90 px too. That is why the
+   container is declared on `div.plyr` itself and not only on its fullscreen states:
+   one rule then covers both the fullscreen and the ordinary player.
+
+   Narrowness is decided by a container query on the player, not by a screen media
+   query: in the rotated fallback (block above) the player box is wide although the
+   screen is portrait, and a single row is correct there. Likewise a wide desktop
+   column (usually 700 px or more) keeps a single row, while a narrow browser window
+   reflows — which is the point.
+
+   container-type: inline-size is safe here: div.plyr is a block element, its width
+   comes from the parent rather than from its contents, and the blocking applies only
+   to the inline size of the container itself. Plyr's absolutely positioned children
+   (tooltips, the settings menu) are positioned inside div.plyr anyway.
+   ------------------------------------------------------------------------- */
+.plyr {
+    container-type: inline-size;
+    container-name: video-player;
+}
+
+@container video-player (max-width: 600px) {
+    .plyr__controls {
+        flex-wrap: wrap;
+    }
+
+    /* Row 1: the seek bar + the time. Row 2: the buttons. */
+    .plyr__controls > * {
+        order: 4;
+    }
+
+    .plyr__controls > .plyr__progress__container {
+        order: 1;
+        /* Plyr already gives it flex: 1 and min-width: 0 — only the order and the
+           starting width change, so that the time labels fit on the same row. */
+        flex-basis: 45%;
+    }
+
+    .plyr__controls > .plyr__time {
+        order: 2;
+    }
+
+    /* An empty flex element as wide as the whole bar: flex-wrap has to move it onto a
+       new row — that is the divider between the seek row and the buttons. */
+    .plyr__controls::before {
+        content: '';
+        order: 3;
+        flex: 0 0 100%;
+        height: 0;
+    }
+}

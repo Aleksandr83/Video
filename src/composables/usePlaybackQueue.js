@@ -26,7 +26,8 @@ function writeStored(key, value) {
 
 /**
  * Playback queue logic: sequential playback with autoplay-next, shuffle and
- * repeat (loop from the start once the whole list has been played).
+ * repeat (once the whole list has been played the queue wraps around — forward
+ * to the first track and backwards to the last one).
  *
  * Pure composable over Vue refs — easy to unit test without mounting.
  *
@@ -79,6 +80,11 @@ export function usePlaybackQueue(items) {
     }
 
     function next() {
+        // An ended queue stays ended: only a click in the queue list (playIndex)
+        // restarts it, so prev()/next() must not resurrect it on their own.
+        if (cursor.value < 0 || !order.value.length) {
+            return
+        }
         if (cursor.value < order.value.length - 1) {
             cursor.value += 1
         } else if (repeat.value && order.value.length) {
@@ -88,11 +94,18 @@ export function usePlaybackQueue(items) {
         }
     }
 
+    // Symmetric counterpart of next(): with repeat on, the first track steps
+    // back to the last one of the current order (which is the shuffled order
+    // when shuffle is on). Without repeat the first track has no neighbour and
+    // the cursor stays where it is.
     function prev() {
+        if (cursor.value < 0 || !order.value.length) {
+            return
+        }
         if (cursor.value > 0) {
             cursor.value -= 1
-        } else {
-            cursor.value = order.value.length ? 0 : -1
+        } else if (repeat.value) {
+            cursor.value = order.value.length - 1
         }
     }
 
