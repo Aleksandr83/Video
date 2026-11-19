@@ -19,7 +19,7 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { generateFilePath } from '@nextcloud/router'
 import Plyr from 'plyr'
 import 'plyr/dist/plyr.css'
-import { loadPosition, savePosition } from '../utils/resume'
+import { loadPosition, savePosition, clearPosition } from '../utils/resume'
 import { incrementView } from '../utils/viewCount'
 import { createFullscreenOrientation, LANDSCAPE_FALLBACK_CLASS } from '../utils/fullscreenOrientation'
 import { mountTrackButtons } from '../utils/plyrTrackButtons'
@@ -56,6 +56,10 @@ let retryTimer = null
 let stallTimer = null
 // The track key the player is currently playing (for resume bookkeeping).
 let currentTrackKey = ''
+// The track whose saved position is not applied yet. A stored value is only trusted once the
+// media reports its duration, because only then can we tell whether it belongs to a track that
+// has already finished (task 8) — so the seek waits for `loadedmetadata`.
+let pendingResumeKey = ''
 // The src for which a view has already been counted (one view per track).
 let countedSrc = ''
 // Keeps the fullscreen orientation in sync with the shape of the video.
@@ -82,12 +86,13 @@ onMounted(() => {
 
     // Listeners are attached once; they also fire after a source change.
     player.on('ready', attemptPlay)
+    video.addEventListener('loadedmetadata', applyPendingResume)
     video.addEventListener('loadeddata', attemptPlay)
     video.addEventListener('playing', onPlaying)
     video.addEventListener('error', onError)
     video.addEventListener('pause', onPause)
     video.addEventListener('timeupdate', onTimeupdate)
-    video.addEventListener('ended', () => emit('ended'))
+    video.addEventListener('ended', onEnded)
     // The stream stopped delivering data (network hiccup). Watch for it and
     // recover with a reload if playback does not resume on its own.
     video.addEventListener('waiting', onStall)
@@ -163,7 +168,8 @@ function saveCurrentPosition() {
     // Do not save a position for a video that already ended — it would resume
     // right at the end and immediately finish again.
     if (currentTrackKey && video && !video.ended) {
-        savePosition(currentTrackKey, video.currentTime)
+        // The duration is what lets resume.js drop a position that is too close to the end.
+        savePosition(currentTrackKey, video.currentTime, video.duration)
     }
 }
 
@@ -174,17 +180,48 @@ function prepareTrack() {
     }
     // Resume from the last playback position of the new track (unless the
     // parent asked to start from the beginning, e.g. auto-advance).
-    if (props.trackKey && props.resume) {
-        const position = loadPosition(props.trackKey)
-        if (position > 0) {
-            try {
-                video.currentTime = position
-            } catch (e) {
-                // Seek not possible for this file — keep playing from the start.
-            }
-        }
+    pendingResumeKey = props.trackKey && props.resume ? props.trackKey : ''
+    // Usually the seek waits for `loadedmetadata`; when the media is already readable
+    // (a reload of the same file), that event will not come again.
+    if (pendingResumeKey && video.readyState >= 1) {
+        applyPendingResume()
     }
     attemptPlay()
+}
+
+// Apply the saved position now that the media reported something about itself.
+function applyPendingResume() {
+    const video = videoRef.value
+    if (!pendingResumeKey || !video) {
+        return
+    }
+    const trackKey = pendingResumeKey
+    // loadPosition drops a value that lies within RESUME_MIN_REMAINING seconds of the end:
+    // that track was watched through, so this one starts from zero. Without a duration the
+    // remaining time cannot be judged and the value is used as it is.
+    const position = loadPosition(trackKey, video.duration)
+    pendingResumeKey = ''
+    if (position > 0) {
+        try {
+            video.currentTime = position
+        } catch (e) {
+            // Seek not possible for this file — keep playing from the start.
+        }
+    }
+}
+
+// A track that reached its end is finished: forget its resume position, so opening it again
+// starts from the beginning (task 8). This also covers repeat/shuffle, which replay the
+// track from zero.
+function onEnded() {
+    const video = videoRef.value
+    if (currentTrackKey) {
+        clearPosition(currentTrackKey)
+    }
+    if (video) {
+        pendingResumeKey = ''
+    }
+    emit('ended')
 }
 
 // Start playback automatically. The player is opened by an explicit user

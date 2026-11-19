@@ -25,7 +25,9 @@ browsing a video list, folder navigation, search, a built-in player and playlist
   exit-fullscreen button wraps onto a row of its own.
 - **Playlists**: create, save, open, add/remove files, reorder
 - Playback logic: auto-advance to the next file, shuffle, loop the playlist
-- Resume playback from where you left off (localStorage)
+- Resume playback from where you left off (localStorage). A track that is less than 30 seconds away
+  from its end counts as watched through: such a position is not kept, so a finished video plays from
+  the beginning when opened again instead of resuming one second before its end.
 - Multitenancy: works with Nextcloud accounts
 - Localization: Russian + English
 
