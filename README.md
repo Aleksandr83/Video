@@ -25,6 +25,14 @@ browsing a video list, folder navigation, search, a built-in player and playlist
   exit-fullscreen button wraps onto a row of its own.
 - **Playlists**: create, save, open, add/remove files, reorder
 - Playback logic: auto-advance to the next file, shuffle, loop the playlist
+- **Headset media keys**: the "previous track" / "next track" buttons of Bluetooth headsets (and of
+  keyboard media keys) drive the queue through the Media Session API. Only the directions the current
+  screen can actually serve are offered to the platform — at the start of a queue without loop there is no
+  "previous", at its end no "next" — and the platform is told the title of the playing video and whether it
+  is playing or paused. The player also reports where the playback is (duration, position and speed, updated
+  as it plays) and a cover: a frame captured in the browser, the same way the video cards get their
+  thumbnails. All of it is presentation — a browser without the Media Session API simply keeps the keyboard
+  path, and nothing in playback depends on it.
 - Resume playback from where you left off (localStorage). A track that is less than 30 seconds away
   from its end counts as watched through: such a position is not kept, so a finished video plays from
   the beginning when opened again instead of resuming one second before its end.

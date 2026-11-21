@@ -94,10 +94,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import VideoPlayer from './VideoPlayer.vue'
 import { davFileUrl } from '../utils/videoUrl'
 import { clearPosition } from '../utils/resume'
+import { mountTrackMediaKeys } from '../utils/mediaSession'
 import { usePlaybackQueue } from '../composables/usePlaybackQueue'
 import { t } from '../i18n'
 
@@ -129,26 +130,39 @@ const {
 const hasPrevTrack = computed(() => previousTrack() !== null)
 const hasNextTrack = computed(() => nextTrack() !== null)
 
+// The media-key owner of this screen (created on mount, released on unmount).
+let mediaKeys = null
+
 onMounted(() => {
     play()
-    document.addEventListener('keydown', onKeydown)
+    // This screen owns the queue, so it owns what the media keys mean here. mountTrackMediaKeys()
+    // covers both paths a headset press can take (Media Session action and keyboard media key).
+    mediaKeys = mountTrackMediaKeys({ onPrev: prevManual, onNext: nextManual })
+    syncMediaKeys()
 })
 
 onBeforeUnmount(() => {
-    document.removeEventListener('keydown', onKeydown)
+    if (mediaKeys) {
+        mediaKeys.destroy()
+        mediaKeys = null
+    }
 })
 
-// Keyboard shortcuts: the dedicated media keys MediaTrackNext / MediaTrackPrevious
-// switch to the next / previous track (same as the on-screen buttons).
-function onKeydown(event) {
-    if (event.code === 'MediaTrackNext' || event.key === 'MediaTrackNext') {
-        nextManual()
-        return
-    }
-    if (event.code === 'MediaTrackPrevious' || event.key === 'MediaTrackPrevious') {
-        prevManual()
+// Stage 54: while this queue plays something, both directions stay registered and reachable for the
+// headset — a removed action cannot be delivered to us at all (stage 53-A, spec §4.4). The neighbour rule of
+// task 6 is unchanged, it only refuses inside. With nothing playing (a closed window, a finished queue) the
+// actions are taken away: the platform has nothing to control here.
+function syncMediaKeys() {
+    if (mediaKeys) {
+        mediaKeys.setAvailability({
+            prev: hasPrevTrack.value,
+            next: hasNextTrack.value,
+            playing: !!current.value,
+        })
     }
 }
+
+watch([hasPrevTrack, hasNextTrack], syncMediaKeys)
 
 // Auto-advance after a track ends: the next track starts from the beginning.
 function nextAuto() {

@@ -59,10 +59,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { getVideos } from '../api/videos'
 import { davFileUrl } from '../utils/videoUrl'
 import { clearPosition } from '../utils/resume'
+import { mountTrackMediaKeys } from '../utils/mediaSession'
 import { getViewCounts, setViewCounts } from '../utils/viewCount'
 import VideoPlayer from '../components/VideoPlayer.vue'
 import AddToPlaylist from '../components/AddToPlaylist.vue'
@@ -118,23 +119,24 @@ const filteredVideos = computed(() => {
     return filtered.sort((a, b) => (viewCounts[b.path] || 0) - (viewCounts[a.path] || 0))
 })
 
+// The media-key owner of this screen (created on mount, released on unmount).
+let mediaKeys = null
+
 onMounted(() => {
-    document.addEventListener('keydown', onKeydown)
+    // This screen owns the playing clip, so it owns what the media keys mean here: the card list
+    // filtered by the current search/filter is the playlist. mountTrackMediaKeys() covers both paths a
+    // headset press can take (Media Session action and keyboard media key).
+    mediaKeys = mountTrackMediaKeys({ onPrev: prevManual, onNext: nextManual })
+    syncMediaKeys()
     load()
 })
 
 onBeforeUnmount(() => {
-    document.removeEventListener('keydown', onKeydown)
-})
-
-// Dedicated media keys: next / previous clip in the current (filtered) list.
-function onKeydown(event) {
-    if (event.code === 'MediaTrackNext' || event.key === 'MediaTrackNext') {
-        nextManual()
-    } else if (event.code === 'MediaTrackPrevious' || event.key === 'MediaTrackPrevious') {
-        prevManual()
+    if (mediaKeys) {
+        mediaKeys.destroy()
+        mediaKeys = null
     }
-}
+})
 
 // Position of the playing clip in the filtered list (-1 when it is not there).
 // Shared by the prev/next navigation and by the player's prev/next buttons, so
@@ -150,6 +152,20 @@ const hasPrevTrack = computed(() => playingIndex.value > 0)
 const hasNextTrack = computed(
     () => playingIndex.value >= 0 && playingIndex.value < filteredVideos.value.length - 1,
 )
+
+// Stage 54: both directions stay registered while a clip plays (a removed action cannot be delivered to us,
+// stage 53-A); the neighbour rule of task 6 refuses inside the handler. Closing the player takes both away.
+function syncMediaKeys() {
+    if (mediaKeys) {
+        mediaKeys.setAvailability({
+            prev: hasPrevTrack.value,
+            next: hasNextTrack.value,
+            playing: !!playing.value,
+        })
+    }
+}
+
+watch([hasPrevTrack, hasNextTrack], syncMediaKeys)
 
 function nextManual() {
     const index = playingIndex.value
