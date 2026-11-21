@@ -2,7 +2,14 @@
     <div class="playlists">
         <h2 class="playlists__heading">{{ t('playlistsTitle') }}</h2>
 
-        <QueuePlayer v-if="playing" class="playlists__queue" :items="playing" @close="playing = null" />
+        <QueuePlayer
+            v-if="playing"
+            class="playlists__queue"
+            :items="playing"
+            @close="closeQueue"
+            @reorder="onQueueReorder"
+            @remove="onQueueRemove"
+        />
 
         <div class="playlists__create">
             <input v-model="newName" class="playlists__new-name" type="text" :placeholder="t('playlistNamePlaceholder')">
@@ -73,6 +80,10 @@ const error = ref('')
 const renaming = ref(null)
 const renameName = ref('')
 const playing = ref(null)
+// The queue of the player and the list of the opened playlist are two views of the SAME saved playlist, so
+// the id of the playlist being played is remembered: moving or removing a track from the list under the
+// video has to be stored, not just shown.
+const playingId = ref(null)
 
 // A transient network/DNS failure must not leave the page stuck: retry loading
 // the playlist list every 10 seconds until it succeeds.
@@ -102,12 +113,109 @@ function clearLoadRetry() {
     }
 }
 
-async function playPlaylist(playlist) {
-    const { data } = await getPlaylist(playlist.id)
-    playing.value = (data.items || []).map((item) => ({
+// The queue needs the ids of the saved items: without them a move or a remove could not be persisted.
+function playableItems(raw) {
+    return (raw || []).map((item) => ({
+        id: item.id,
         path: item.path,
         name: item.path.split('/').pop() || item.path,
     }))
+}
+
+async function playPlaylist(playlist) {
+    const { data } = await getPlaylist(playlist.id)
+    playingId.value = playlist.id
+    playing.value = playableItems(data.items)
+    // The opened playlist shows the same order the player is playing.
+    if (selectedId.value === playlist.id) {
+        items.value = data.items || []
+    }
+}
+
+function closeQueue() {
+    playing.value = null
+    playingId.value = null
+}
+
+// The server is the owner of the order. When it refuses the change, the queue is reloaded from it instead of
+// leaving the user with a list that does not exist.
+async function reloadPlaylist() {
+    if (!playingId.value) {
+        return
+    }
+    try {
+        const { data } = await getPlaylist(playingId.value)
+        playing.value = playableItems(data.items)
+        if (selectedId.value === playingId.value) {
+            items.value = data.items || []
+        }
+    } catch (e) {
+        error.value = t('playlistsLoadError')
+    }
+}
+
+// Keep the opened playlist in step with the queue order, so the two lists cannot disagree.
+function mirrorInDetail(order) {
+    if (selectedId.value !== playingId.value) {
+        return
+    }
+    const byId = new Map(items.value.map((item) => [item.id, item]))
+    const mirrored = order.map((entry) => byId.get(entry.id)).filter(Boolean)
+    if (mirrored.length === items.value.length) {
+        items.value = mirrored
+    }
+}
+
+async function onQueueReorder({ from, to }) {
+    if (!playing.value || !playingId.value) {
+        return
+    }
+    if (to < 0 || to >= playing.value.length || from < 0 || from >= playing.value.length) {
+        return
+    }
+    const next = [...playing.value]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    playing.value = next
+    mirrorInDetail(next)
+
+    try {
+        await reorderPlaylistItems(playingId.value, next.map((item) => item.id))
+    } catch (e) {
+        error.value = t('playlistsSaveError')
+        await reloadPlaylist()
+    }
+}
+
+async function onQueueRemove({ index, item }) {
+    if (!playing.value || !playingId.value) {
+        return
+    }
+    const removed = playing.value[index] || item
+    const itemId = removed ? removed.id : null
+    playing.value = playing.value.filter((_, position) => position !== index)
+
+    if (selectedId.value === playingId.value && itemId !== null) {
+        items.value = items.value.filter((entry) => entry.id !== itemId)
+    }
+
+    if (itemId === null) {
+        await reloadPlaylist()
+        return
+    }
+
+    try {
+        await removePlaylistItem(playingId.value, itemId)
+    } catch (e) {
+        error.value = t('playlistsSaveError')
+        await reloadPlaylist()
+        return
+    }
+
+    // Nothing left to play: the window closes instead of showing an empty queue.
+    if (!playing.value.length) {
+        closeQueue()
+    }
 }
 
 async function load() {
@@ -209,6 +317,9 @@ async function move(from, to) {
     const [moved] = next.splice(from, 1)
     next.splice(to, 0, moved)
     items.value = next
+    if (playingId.value === selectedId.value) {
+        playing.value = playableItems(next)
+    }
 
     try {
         await reorderPlaylistItems(selectedId.value, next.map((item) => item.id))
@@ -225,6 +336,12 @@ async function removeItem(item) {
     try {
         await removePlaylistItem(selectedId.value, item.id)
         items.value = items.value.filter((i) => i.id !== item.id)
+        if (playingId.value === selectedId.value) {
+            playing.value = playableItems(items.value)
+            if (!playing.value.length) {
+                closeQueue()
+            }
+        }
     } catch (e) {
         error.value = t('playlistsSaveError')
     }

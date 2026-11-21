@@ -2,7 +2,12 @@
     <div ref="root" class="add-to-playlist">
         <button class="add-to-playlist__toggle" @click="toggle">{{ t('addToPlaylist') }}</button>
 
-        <div v-if="open" class="add-to-playlist__menu">
+        <div
+            v-if="open"
+            ref="menuEl"
+            class="add-to-playlist__menu"
+            :class="{ 'add-to-playlist__menu--above': menuAbove }"
+        >
             <div class="add-to-playlist__menu-head">
                 <span class="add-to-playlist__menu-title">{{ t('addToPlaylist') }}</span>
                 <button class="add-to-playlist__close" :title="t('close')" @click="open = false">✕</button>
@@ -37,8 +42,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { nextTick, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { getPlaylists, createPlaylist, addPlaylistItem } from '../api/playlists'
+import { overflowToShowMenu, planMenuPlacement } from '../utils/menuPlacement'
 import { t } from '../i18n'
 
 const props = defineProps({
@@ -46,6 +52,8 @@ const props = defineProps({
 })
 
 const root = ref(null)
+const menuEl = ref(null)
+const menuAbove = ref(false)
 const open = ref(false)
 const loading = ref(false)
 const playlists = ref([])
@@ -53,6 +61,65 @@ const error = ref('')
 const added = ref(false)
 const newName = ref('')
 const creating = ref(false)
+
+/**
+ * Put the menu on the side of the button that the screen can show, and move the page by whatever still hangs
+ * out. Anchored below (the usual case) a 216 px menu was measured hanging 177 px below the bottom edge of a
+ * 411x620 screen with five playlists, with every one of its options off screen; anchored above the same button
+ * it fits entirely (344..560). The screen is the area here: unlike the list under the video, the card list
+ * scrolls with the page, so the only edge this menu can run into is the bottom edge of the viewport.
+ */
+async function placeMenu() {
+    if (!open.value) {
+        menuAbove.value = false
+        return
+    }
+    const menu = menuEl.value
+    const anchor = root.value ? root.value.querySelector('.add-to-playlist__toggle') : null
+    if (!menu || !anchor) {
+        return
+    }
+
+    const windowBottom = window.innerHeight || 0
+    const anchorBox = anchor.getBoundingClientRect()
+    const menuBox = menu.getBoundingClientRect()
+    const plan = planMenuPlacement({
+        anchorTop: anchorBox.top,
+        anchorBottom: anchorBox.bottom,
+        windowTop: 0,
+        windowBottom,
+        menuHeight: menuBox.height,
+        // `.add-to-playlist__menu` is anchored at `top: 100%`: it starts at the edge of the button, it does
+        // not overlap it.
+        overlap: 0,
+    })
+
+    if (plan.side === 'above' && !menuAbove.value) {
+        menuAbove.value = true
+        await nextTick()
+    }
+    if (!open.value || !menuEl.value) {
+        return
+    }
+
+    const placed = menuEl.value.getBoundingClientRect()
+    const shift = overflowToShowMenu({
+        windowTop: 0,
+        windowBottom,
+        menuTop: placed.top,
+        menuBottom: placed.bottom,
+        side: menuAbove.value ? 'above' : 'below',
+    })
+    if (shift) {
+        window.scrollBy(0, shift)
+    }
+}
+
+// The menu is drawn before its content is known (it grows when the playlists arrive, and again when a name is
+// added or an error line appears), so the side and the shift are recomputed whenever its height can change.
+watch([open, loading, error, added, playlists, creating], () => {
+    placeMenu()
+}, { deep: true })
 
 async function toggle() {
     open.value = !open.value
@@ -150,6 +217,11 @@ async function createAndAdd() {
     display: flex;
     flex-direction: column;
     gap: 4px;
+}
+
+.add-to-playlist__menu--above {
+    top: auto;
+    bottom: 100%;
 }
 
 .add-to-playlist__option {

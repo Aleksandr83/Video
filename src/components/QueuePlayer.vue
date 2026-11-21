@@ -78,28 +78,81 @@
             </button>
         </div>
 
-        <ul v-if="queue.length" class="queue-player__list">
-            <li v-for="(item, index) in queue" :key="item.path" class="queue-player__list-item">
+        <ul v-if="queue.length" ref="listEl" class="queue-player__list">
+            <li
+                v-for="(item, index) in queue"
+                :key="item.path"
+                class="queue-player__list-item"
+                :class="{ 'queue-player__list-item--menu': menuIndex === index }"
+                @contextmenu.prevent="openTrackMenu(index, $event)"
+                @pointerdown="trackPressStart(index, $event)"
+                @pointerup="trackPressEnd"
+                @pointercancel="trackPressEnd"
+                @pointermove="cancelHold"
+            >
                 <button
                     class="queue-player__item"
+                    data-selectable="false"
                     :class="{ 'queue-player__item--current': index === currentIndex }"
                     @click="jump(index)"
                 >
                     <span class="queue-player__item-num">{{ index + 1 }}</span>
                     <span class="queue-player__item-name">{{ itemName(item) }}</span>
                 </button>
+
+                <!-- A right click reaches us as `contextmenu` (measured in Chromium). A finger held on a row
+                     does not produce that event here — the menu opened from our own hold timer at +508 ms —
+                     so both paths are kept. What the row may do is decided here, in the app: move the track in
+                     the saved playlist, or take it out of it. -->
+                <div
+                    v-if="menuIndex === index"
+                    class="queue-player__menu"
+                    :style="menuStyle"
+                    role="menu"
+                    @click.stop
+                    @pointerdown.stop="armTrackMenu"
+                    @contextmenu.stop.prevent
+                >
+                    <button
+                        class="queue-player__menu-up button-vue"
+                        type="button"
+                        role="menuitem"
+                        :disabled="index === 0"
+                        @click="moveTrackUp(index)"
+                    >
+                        {{ t('up') }}
+                    </button>
+                    <button
+                        class="queue-player__menu-down button-vue"
+                        type="button"
+                        role="menuitem"
+                        :disabled="index === queue.length - 1"
+                        @click="moveTrackDown(index)"
+                    >
+                        {{ t('down') }}
+                    </button>
+                    <button
+                        class="queue-player__menu-remove button-vue"
+                        type="button"
+                        role="menuitem"
+                        @click="removeTrack(index)"
+                    >
+                        {{ t('remove') }}
+                    </button>
+                </div>
             </li>
         </ul>
     </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import VideoPlayer from './VideoPlayer.vue'
 import { davFileUrl } from '../utils/videoUrl'
 import { clearPosition } from '../utils/resume'
 import { mountTrackMediaKeys } from '../utils/mediaSession'
 import { usePlaybackQueue } from '../composables/usePlaybackQueue'
+import { clampMenuLeft, overflowToShowMenu, planPointerMenuPlacement } from '../utils/menuPlacement'
 import { t } from '../i18n'
 
 const props = defineProps({
@@ -123,12 +176,255 @@ const {
     toggleShuffle,
     toggleRepeat,
     play,
+    syncItems,
+    previousTrack,
+    nextTrack,
+    hasPrevTrack,
+    hasNextTrack,
 } = usePlaybackQueue(props.items)
 
-// Neighbour tracks for the prev/next buttons in the player's fullscreen row.
-// Same rules as the buttons below and the media keys, so all three agree.
-const hasPrevTrack = computed(() => previousTrack() !== null)
-const hasNextTrack = computed(() => nextTrack() !== null)
+// The list under the video is a view of the saved playlist, and the playlist is the owner of its order:
+// when the screen reorders or removes a track (after the server accepted it) the queue follows the new list
+// instead of holding on to the one it was built from.
+watch(() => props.items, (items) => syncItems(items))
+
+// The menu of one row at a time: which row was pressed, and when. The timestamp matters because Android
+// releases the finger after a long press, and the browser may deliver that release as a click of the row —
+// which must not be taken for a request to play another track.
+const menuIndex = ref(-1)
+const menuAbove = ref(false)
+const menuStyle = ref({})
+const listEl = ref(null)
+// Where the menu was called from, in the page's own coordinates: `clientX`/`clientY` of the right click, or of
+// the pointerdown that started the hold.
+let menuPress = null
+let menuOpenedAt = 0
+let holdTimer = null
+// A press that is still down, the leftover the list has to move once it is over, and whether the menu was
+// pressed since it opened.
+let pressIsDown = false
+let pendingShift = 0
+let menuActionArmed = false
+
+const HOLD_DELAY = 500
+const RELEASE_CLICK_GRACE = 700
+
+function openTrackMenu(index, event) {
+    if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault()
+    }
+    clearHold()
+    menuIndex.value = index
+    menuOpenedAt = Date.now()
+    menuAbove.value = false
+    menuActionArmed = false
+    pendingShift = 0
+    menuPress = event && typeof event.clientX === 'number' ? { x: event.clientX, y: event.clientY } : null
+    // The menu is drawn at its final place as soon as it can be measured; until then it sits at the top left
+    // corner of its row, which is inside the row and so always visible.
+    menuStyle.value = { left: '0px', top: '0px' }
+    if (typeof document !== 'undefined') {
+        document.addEventListener('pointerdown', closeMenuOnOutside)
+        document.addEventListener('keydown', closeMenuOnEscape)
+    }
+    placeTrackMenu(index)
+}
+
+/**
+ * Put the menu on the side of the row that the list window can show. The list is a scroll box of its own
+ * (`max-height` + `overflow-y: auto`), and a menu hanging below a row near the bottom of it is cut off by that
+ * box: measured in Chromium, the menu of the last row of a three-row list hung 48 px below the visible band,
+ * and a press at the place its buttons were landed on the page. Anchored above such a row it fits (338..390
+ * inside 332..413); when the row has too little room on either side, the list is scrolled by the leftover.
+ */
+async function placeTrackMenu(index) {
+    await nextTick()
+    const list = listEl.value
+    const row = list ? list.querySelectorAll('.queue-player__list-item')[index] : null
+    const menu = row ? row.querySelector('.queue-player__menu') : null
+    if (!list || !menu || !row || menuIndex.value !== index) {
+        return
+    }
+
+    const listBox = list.getBoundingClientRect()
+    const rowBox = row.getBoundingClientRect()
+    const menuBox = menu.getBoundingClientRect()
+    const pressX = menuPress ? menuPress.x : rowBox.left
+    const pressY = menuPress ? menuPress.y : rowBox.top
+
+    const plan = planPointerMenuPlacement({
+        pressTop: pressY,
+        windowTop: listBox.top,
+        windowBottom: listBox.bottom,
+        menuHeight: menuBox.height,
+    })
+    // The menu opens at the place it was called from, like the browser's own context menu, and is pulled back
+    // when it would hang past the edge of the list. Pinned to the row's right edge instead, it opened 1299 px
+    // away from a right click made next to the track label on a 1607 px wide desktop.
+    const left = clampMenuLeft({
+        rowLeft: listBox.left,
+        rowRight: listBox.right,
+        menuWidth: menuBox.width,
+        pressLeft: pressX,
+    })
+
+    menuAbove.value = plan.side === 'above'
+    menuStyle.value = menuAbove.value
+        ? { left: `${Math.round(left - rowBox.left)}px`, bottom: `${Math.round(rowBox.bottom - pressY)}px` }
+        : { left: `${Math.round(left - rowBox.left)}px`, top: `${Math.round(pressY - rowBox.top)}px` }
+    await nextTick()
+
+    const measured = row.querySelector('.queue-player__menu')
+    if (menuIndex.value !== index || !measured) {
+        return
+    }
+
+    const placedMenu = row.querySelector('.queue-player__menu')
+    if (menuIndex.value !== index || !placedMenu) {
+        return
+    }
+
+    const placed = placedMenu.getBoundingClientRect()
+    const shift = overflowToShowMenu({
+        windowTop: list.getBoundingClientRect().top,
+        windowBottom: list.getBoundingClientRect().bottom,
+        menuTop: placed.top,
+        menuBottom: placed.bottom,
+        side: menuAbove.value ? 'above' : 'below',
+    })
+    if (!shift) {
+        return
+    }
+    if (pressIsDown) {
+        // Moving the list now would relocate the row out from under the finger that is still on it, and the
+        // browser would deliver the release of that press to whatever menu button ended up under it. Measured
+        // in Chromium exactly that happened: the release of a held middle row ran the "move up" action and reordered
+        // saved playlist without any request to move it.
+        pendingShift = shift
+        return
+    }
+    list.scrollTop += shift
+}
+
+function closeTrackMenu() {
+    menuIndex.value = -1
+    menuAbove.value = false
+    menuPress = null
+    menuStyle.value = {}
+    menuActionArmed = false
+    pendingShift = 0
+    clearHold()
+    if (typeof document !== 'undefined') {
+        document.removeEventListener('pointerdown', closeMenuOnOutside)
+        document.removeEventListener('keydown', closeMenuOnEscape)
+    }
+}
+
+function clearHold() {
+    if (holdTimer) {
+        clearTimeout(holdTimer)
+        holdTimer = null
+    }
+}
+
+function trackPressStart(index, event) {
+    pressIsDown = true
+    if (!event || event.pointerType !== 'touch') {
+        return
+    }
+    clearHold()
+    holdTimer = setTimeout(() => {
+        holdTimer = null
+        openMenuFromHold(index, event)
+    }, HOLD_DELAY)
+}
+
+function trackPressEnd() {
+    pressIsDown = false
+    clearHold()
+    const list = listEl.value
+    if (pendingShift && list && menuIndex.value >= 0) {
+        list.scrollTop += pendingShift
+    }
+    pendingShift = 0
+}
+
+function cancelHold() {
+    clearHold()
+}
+
+// A finger held on a row is a request for the menu: measured in Chromium, a 700 ms hold does not produce a
+// `contextmenu` here, so this timer is the path that answers it (a right click does come as `contextmenu`).
+// A move or a release cancels it, so a normal tap stays a normal tap.
+function openMenuFromHold(index, event) {
+    openTrackMenu(index, event)
+}
+
+/**
+ * A press on the menu is what asks it for an action. The press that opened the menu is not: in Chromium the
+ * menu of a row opens while the finger is still down, and the release of that press arrives as a click on
+ * whatever button the menu has just placed under the finger.
+ */
+function armTrackMenu() {
+    menuActionArmed = true
+}
+
+function closeMenuOnOutside(event) {
+    if (menuIndex.value < 0) {
+        return
+    }
+    const row = event && event.target && event.target.closest ? event.target.closest('.queue-player__list-item') : null
+    if (row && row.querySelector('.queue-player__menu')) {
+        // A press inside the row the menu belongs to belongs to the menu too.
+        return
+    }
+    closeTrackMenu()
+}
+
+function closeMenuOnEscape(event) {
+    if (event && event.key === 'Escape' && menuIndex.value >= 0) {
+        closeTrackMenu()
+    }
+}
+
+function moveTrackUp(index) {
+    reportMove(index, index - 1)
+}
+
+function moveTrackDown(index) {
+    reportMove(index, index + 1)
+}
+
+function reportMove(from, to) {
+    if (!menuActionArmed) {
+        // The press that opened the menu is not a request to move a track.
+        return
+    }
+    if (from < 0 || to < 0 || to >= queue.value.length || from === to) {
+        closeTrackMenu()
+        return
+    }
+    // The order of the playlist is owned by the screen that saved it: report the intent and let the new
+    // list come back through props.items.
+    emit('reorder', { from, to })
+    closeTrackMenu()
+}
+
+function removeTrack(index) {
+    if (!menuActionArmed) {
+        return
+    }
+    const item = queue.value[index]
+    if (!item) {
+        closeTrackMenu()
+        return
+    }
+    emit('remove', { index, item })
+    closeTrackMenu()
+}
+
+// Neighbour tracks come from the queue itself: the buttons under the player, the fullscreen row and the
+// media keys all obey the same rule, so all three agree.
 
 // The media-key owner of this screen (created on mount, released on unmount).
 let mediaKeys = null
@@ -146,11 +442,12 @@ onBeforeUnmount(() => {
         mediaKeys.destroy()
         mediaKeys = null
     }
+    closeTrackMenu()
 })
 
-// Stage 54: while this queue plays something, both directions stay registered and reachable for the
-// headset — a removed action cannot be delivered to us at all (stage 53-A, spec §4.4). The neighbour rule of
-// task 6 is unchanged, it only refuses inside. With nothing playing (a closed window, a finished queue) the
+// While this queue plays something, both directions stay registered and reachable for the headset — a
+// removed action cannot be delivered to us at all (Media Session spec §4.4: an action with no handler is
+// aborted before it reaches the page). The neighbour rule of task 6 is unchanged, it only refuses inside. With nothing playing (a closed window, a finished queue) the
 // actions are taken away: the platform has nothing to control here.
 function syncMediaKeys() {
     if (mediaKeys) {
@@ -202,40 +499,13 @@ function nextManual() {
 }
 
 function jump(index) {
+    // A long press ends with a click in some browsers; while that press is still being answered the row
+    // does not change what plays.
+    if (menuIndex.value === index && Date.now() - menuOpenedAt < RELEASE_CLICK_GRACE) {
+        return
+    }
     playFromStart.value = false
     playIndex(index)
-}
-
-// The track that prev() will land on (null when there is no previous one).
-// Mirrors nextTrack(): with repeat on, the first track goes back to the last
-// one of the current order — which is the shuffled order when shuffle is on.
-function previousTrack() {
-    if (cursor.value < 0) {
-        return null
-    }
-    if (cursor.value > 0) {
-        const target = order.value[cursor.value - 1]
-        return queue.value[target] || null
-    }
-    if (repeat.value && order.value.length) {
-        return queue.value[order.value[order.value.length - 1]] || null
-    }
-    return null
-}
-
-// The track that next() will land on (null when the queue has nothing left).
-function nextTrack() {
-    if (cursor.value < 0) {
-        return null
-    }
-    if (cursor.value < order.value.length - 1) {
-        const target = order.value[cursor.value + 1]
-        return queue.value[target] || null
-    }
-    if (repeat.value && order.value.length) {
-        return queue.value[order.value[0]] || null
-    }
-    return null
 }
 
 // Display name without the file extension (e.g. "clip.mp4" -> "clip").
@@ -323,6 +593,52 @@ function close() {
 
 .queue-player__list-item {
     margin: 0;
+}
+
+/* A finger held on selectable text makes Android start a text selection and offer the browser's own menu
+   (Copy / Select all / Search the web) above everything the app shows. These rows are controls, not text to
+   copy, so they are not selectable and the long press belongs to the app. */
+.queue-player__list-item {
+    position: relative;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.queue-player__menu {
+    position: absolute;
+    z-index: 3;
+    display: flex;
+    /* One item per line: the shape of a context menu, which is what a mouse user expects and where it was
+       called from. Its position is set inline by placeTrackMenu(). */
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+    background: var(--color-main-background);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+}
+
+.queue-player__menu button {
+    min-height: 44px;
+    padding: 6px 12px;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.queue-player__menu button[disabled] {
+    opacity: 0.35;
+}
+
+/* On a touch screen the same three actions stand side by side: the row of buttons is 52 px tall instead of
+   140 px, so it fits the window of the queue list far more often. Measured with a held finger: 206x52 with
+   buttons 44 px tall, and it is the shape the phone check confirmed. */
+@media (pointer: coarse) {
+    .queue-player__menu {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
 }
 
 .queue-player__item {

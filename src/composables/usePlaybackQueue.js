@@ -132,6 +132,91 @@ export function usePlaybackQueue(items) {
         cursor.value = -1
     }
 
+    /**
+     * Follow a new list of tracks without interrupting the playback.
+     *
+     * The list under the video is a view of the saved playlist, and the user can change that order there
+     * (move a track up or down, remove one). The queue must adopt the new list while the same track keeps
+     * playing, so the identity of the current track is held by its path, not by an index: an index means
+     * nothing any more after the list moved.
+     *
+     * Without shuffle the playback order IS the list order, so the next track to play is whatever the new
+     * list puts after the current one. With shuffle on the sequence the user already started playing keeps
+     * its shape: tracks that are still there stay in the same slots of that sequence, and tracks the list
+     * has just gained are appended to it.
+     */
+    function syncItems(items) {
+        const next = Array.isArray(items) ? [...items] : []
+        const currentPath = current.value ? current.value.path : null
+        const startedAt = cursor.value
+        const sequence = order.value.map((index) => (queue.value[index] ? queue.value[index].path : null))
+            .filter(Boolean)
+
+        queue.value = next
+        if (!next.length) {
+            order.value = []
+            cursor.value = -1
+            return
+        }
+
+        const indexOfPath = (path) => next.findIndex((item) => item.path === path)
+
+        if (shuffle.value) {
+            const kept = sequence.map(indexOfPath).filter((index) => index >= 0)
+            const claimed = new Set(kept)
+            next.forEach((item, index) => {
+                if (!claimed.has(index)) {
+                    kept.push(index)
+                    claimed.add(index)
+                }
+            })
+            order.value = kept
+        } else {
+            order.value = naturalOrder()
+        }
+
+        if (currentPath) {
+            const at = order.value.indexOf(indexOfPath(currentPath))
+            // The track the user is watching is still in the list: stay on it.
+            cursor.value = at >= 0 ? at : Math.min(startedAt, order.value.length - 1)
+        } else {
+            // It is gone (removed from the playlist): the track that took its place continues the queue.
+            cursor.value = Math.min(startedAt, order.value.length - 1)
+        }
+    }
+
+    // The track that prev() will land on (null when there is no previous one). With repeat on, the first
+    // track steps back to the last one of the current order — which is the shuffled order when shuffle is on.
+    function previousTrack() {
+        if (cursor.value < 0) {
+            return null
+        }
+        if (cursor.value > 0) {
+            return queue.value[order.value[cursor.value - 1]] || null
+        }
+        if (repeat.value && order.value.length) {
+            return queue.value[order.value[order.value.length - 1]] || null
+        }
+        return null
+    }
+
+    // The track that next() will land on (null when the queue has nothing left).
+    function nextTrack() {
+        if (cursor.value < 0) {
+            return null
+        }
+        if (cursor.value < order.value.length - 1) {
+            return queue.value[order.value[cursor.value + 1]] || null
+        }
+        if (repeat.value && order.value.length) {
+            return queue.value[order.value[0]] || null
+        }
+        return null
+    }
+
+    const hasPrevTrack = computed(() => previousTrack() !== null)
+    const hasNextTrack = computed(() => nextTrack() !== null)
+
     return {
         queue,
         current,
@@ -147,5 +232,10 @@ export function usePlaybackQueue(items) {
         toggleShuffle,
         toggleRepeat,
         reset,
+        syncItems,
+        previousTrack,
+        nextTrack,
+        hasPrevTrack,
+        hasNextTrack,
     }
 }
