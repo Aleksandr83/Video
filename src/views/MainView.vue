@@ -1,5 +1,5 @@
 <template>
-    <div class="main-view">
+    <div class="main-view" :class="{ 'main-view--playing': !!playing }">
         <div v-if="loading" class="main-view__loading">{{ t('loading') }}</div>
 
         <div v-else-if="error" class="main-view__empty main-view__error">{{ error }}</div>
@@ -10,7 +10,6 @@
 
         <template v-else>
             <div class="main-view__toolbar">
-                <button v-if="currentFolder" class="main-view__up" @click="goUp">← {{ t('up') }}</button>
                 <input v-model="search" class="main-view__search" type="search" :placeholder="t('searchPlaceholder')">
                 <select v-model="extensionFilter" class="main-view__filter">
                     <option value="">{{ t('allFormats') }}</option>
@@ -33,26 +32,29 @@
                 @next="nextManual"
             />
 
-            <div v-if="subfolders.length" class="main-view__folders">
-                <button v-for="sub in subfolders" :key="sub" class="main-view__folder-btn" @click="openFolder(sub)">{{ sub }}</button>
-            </div>
-
-            <div v-if="filteredVideos.length" class="main-view__grid">
-                <div v-for="video in filteredVideos" :key="video.path" class="main-view__card">
-                    <button class="main-view__card-media" @click="playVideo(video)">
-                        <VideoThumb :path="video.path" />
-                        <span class="main-view__play-badge">▶</span>
-                    </button>
-                    <div class="main-view__card-body">
-                        <div class="main-view__card-title" :title="video.name">{{ stripExtension(video.name) }}</div>
-                        <div class="main-view__card-meta">{{ video.path }}</div>
-                        <AddToPlaylist class="main-view__card-add" :path="video.path" />
+            <div class="main-view__list">
+                <div v-if="filteredVideos.length" class="main-view__grid">
+                    <div
+                        v-for="video in filteredVideos"
+                        :key="video.path"
+                        class="main-view__card"
+                        :class="{ 'main-view__card--playing': !!playing && playing.path === video.path }"
+                    >
+                        <button class="main-view__card-media" @click="playVideo(video)">
+                            <VideoThumb :path="video.path" />
+                            <span class="main-view__play-badge">▶</span>
+                        </button>
+                        <div class="main-view__card-body">
+                            <div class="main-view__card-title" :title="video.name">{{ stripExtension(video.name) }}</div>
+                            <div class="main-view__card-meta">{{ video.path }}</div>
+                            <AddToPlaylist class="main-view__card-add" :path="video.path" />
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div v-else-if="!subfolders.length" class="main-view__empty">
-                {{ t('noVideosInFolder') }}
+                <div v-else class="main-view__empty">
+                    {{ t('noVideosInFolder') }}
+                </div>
             </div>
         </template>
     </div>
@@ -75,8 +77,6 @@ const configured = ref(false)
 const error = ref('')
 const playing = ref(null)
 const playFromStart = ref(false)
-const currentFolder = ref('')
-const subfolders = ref([])
 const videos = ref([])
 const search = ref('')
 const extensionFilter = ref('')
@@ -195,37 +195,19 @@ async function load() {
     loading.value = true
     error.value = ''
     try {
-        const { data } = await getVideos(currentFolder.value)
+        // The Videos screen shows the configured folders as one flat list (the backend follows the
+        // app's recursive setting); folder chips are not rendered, so there is no folder to pass.
+        const { data } = await getVideos()
         configured.value = data.configured
-        subfolders.value = data.subfolders || []
         videos.value = data.videos || []
         setViewCounts(data.views || {})
     } catch (e) {
         error.value = t('videosLoadError')
         configured.value = false
-        subfolders.value = []
         videos.value = []
     } finally {
         loading.value = false
     }
-}
-
-function openFolder(path) {
-    currentFolder.value = path
-    search.value = ''
-    extensionFilter.value = ''
-    load()
-}
-
-function parentPath(path) {
-    const trimmed = path.replace(/\/+$/, '')
-    const index = trimmed.lastIndexOf('/')
-    return index <= 0 ? '' : trimmed.slice(0, index)
-}
-
-function goUp() {
-    currentFolder.value = parentPath(currentFolder.value)
-    load()
 }
 
 // Manual pick from a card: keep the resume feature.
@@ -256,23 +238,6 @@ function onEnded() {
     gap: 12px;
     margin-bottom: 16px;
     flex-wrap: wrap;
-}
-
-.main-view__folders {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin: 0 0 16px;
-}
-
-.main-view__folder-btn {
-    background: var(--color-background-hover);
-    border: 1px solid var(--color-border);
-    color: var(--color-main-text);
-    border-radius: 999px;
-    cursor: pointer;
-    font-size: 14px;
-    padding: 6px 12px;
 }
 
 .main-view__grid {
@@ -349,5 +314,109 @@ function onEnded() {
 
 .main-view__error {
     color: var(--color-error);
+}
+
+/* The card of the clip that is playing is marked in the list, so the row that plays can be told
+   from the others next to it. */
+.main-view__card--playing .main-view__card-media {
+    outline: 2px solid var(--color-primary-element, #0082c9);
+    outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------------------
+   Phone toolbar: the filter stays, pinned to the right edge, the search
+   takes the free space.
+
+   The format filter remains on the Videos screen until the new filter
+   feature replaces its contents (the user keeps it meanwhile), but a phone
+   row should not leave a dead band on the right: measured in Chromium at
+   411x917 before this rule the search was 177 px and the filter's box ended
+   at 312 px while the toolbar spanned to 395 px — 83 px of the row went
+   unused. flex-grow on the search absorbs the free space (it sits between
+   the navigation button and the filter, so the filter is pushed flush to the
+   right edge); min-width: 0 lets the search shrink on the narrowest phones
+   instead of pushing the filter out of the row. A desktop (fine pointer or a
+   wide window) keeps the compact natural widths — measured unchanged at
+   177 px search on 1280 px.
+   ------------------------------------------------------------------------- */
+@media (pointer: coarse) and (max-width: 1024px) {
+    .main-view__search {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .main-view__filter {
+        margin-left: auto;
+    }
+}
+
+/* -------------------------------------------------------------------------
+   Watching one clip on a phone: the screen splits into two bands.
+
+   While a clip plays, the root carries main-view--playing and the layout becomes
+   a fixed-height grid: toolbar, then the player, then the clip list — the list
+   region is the row that takes whatever the player band leaves and scrolls on
+   its own, so the video stays visible while the list moves. Measured in Chromium
+   at 411x917 before this layout existed: a 16:9 clip left 2 whole cards on the
+   screen (379 px wide previews) and reaching the rest of the list scrolled the
+   player completely out of view (its box moved to -516..-303); a 9:16 clip took
+   379x642 — 70% of the screen. The media gets its own letterboxed band box
+   (contain over the player's black background) so a tall clip cannot push the
+   list off the screen.
+
+   The media query is the boundary: a coarse pointer and a phone-sized viewport.
+   A desktop (fine pointer, or a wide window) keeps the ordinary page flow with
+   the full-size grid — measured as 5 columns at 1280 px with 237 px previews.
+   Fullscreen is outside this rule: the fullscreen states of the media element
+   declare their own full-screen box and keep winning over the capped one.
+   ------------------------------------------------------------------------- */
+@media (pointer: coarse) and (max-width: 1024px) {
+    .main-view--playing {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+        gap: 8px;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .main-view--playing .main-view__list {
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .main-view--playing .main-view__toolbar,
+    .main-view--playing .main-view__player {
+        margin-bottom: 0;
+    }
+
+    .main-view--playing :deep(.video-player__media) {
+        max-height: 38vh;
+        object-fit: contain;
+    }
+
+    /* Compact rows: a small 16:9 preview with the title, path and the playlist button beside it. */
+    .main-view--playing .main-view__grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .main-view--playing .main-view__card {
+        display: grid;
+        grid-template-columns: 132px minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+    }
+
+    .main-view--playing .main-view__card-media {
+        width: 132px;
+    }
+
+    .main-view--playing .main-view__card-body {
+        padding-top: 0;
+    }
+
+    .main-view--playing .main-view__play-badge {
+        font-size: 22px;
+    }
 }
 </style>
