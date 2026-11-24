@@ -5,14 +5,12 @@
     <name>Video</name>
     <summary>Local YouTube: video player and playlists for Nextcloud</summary>
     <description><![CDATA[Video turns your Nextcloud storage into a local YouTube: browse video files, play them right in the browser and manage playlists.]]></description>
-    <version>0.3.0</version>
+    <version>1.3.1</version>
     <icon>img/app.svg</icon>
     <licence>agpl</licence>
     <author>Video Team</author>
     <namespace>Video</namespace>
     <category>multimedia</category>
-    <website>https://example.org</website>
-    <bugs>https://example.org</bugs>
     <repository type="git">https://gitea.lo/lukin.aleksandr/Video</repository>
     <dependencies>
         <nextcloud min-version="30" max-version="34"/>

@@ -14,6 +14,16 @@ return [
         ['name' => 'page#index', 'url' => '/', 'verb' => 'GET'],
         ['name' => 'settings#index', 'url' => '/settings', 'verb' => 'GET'],
         ['name' => 'settings#update', 'url' => '/settings', 'verb' => 'PUT'],
+
+        ['name' => 'category#index', 'url' => '/categories', 'verb' => 'GET'],
+
+        ['name' => 'category#create', 'url' => '/categories', 'verb' => 'POST'],
+
+        ['name' => 'category#rename', 'url' => '/categories/{id}', 'verb' => 'PUT'],
+
+        ['name' => 'category#destroy', 'url' => '/categories/{id}', 'verb' => 'DELETE'],
+
+        ['name' => 'about#index', 'url' => '/about', 'verb' => 'GET'],
         ['name' => 'video#index', 'url' => '/videos', 'verb' => 'GET'],
         ['name' => 'view#increment', 'url' => '/views', 'verb' => 'POST'],
         ['name' => 'playlist#index', 'url' => '/playlists', 'verb' => 'GET'],

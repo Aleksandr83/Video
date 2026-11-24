@@ -207,4 +207,71 @@ class VideoServiceTest extends TestCase {
 
         $this->assertSame(['/Movies/Sub'], $this->service->getSubfolders($this->userFolder, '/Movies'));
     }
+
+    /**
+     * The listing carries the category of the nearest configured folder, so the Videos screen can
+     * filter by category without knowing anything about how folders and categories are linked.
+     * A real SettingsService (over a stubbed IConfig) is used here on purpose: the category rule is
+     * owned by that service, and duplicating it in a mock would test the mock instead of the app.
+     */
+    private function serviceWithStoredFolders(array $entries): VideoService {
+        $config = $this->createMock(\OCP\IConfig::class);
+        $config->method('getAppValue')->willReturn(json_encode($entries, JSON_UNESCAPED_SLASHES));
+
+        return new VideoService(new SettingsService($config));
+    }
+
+    public function testListedVideosCarryTheCategoryOfTheirConfiguredFolder(): void {
+        $movies = $this->mockFolder('/Movies', [
+            $this->mockFile('clip.mp4', '/Movies/clip.mp4'),
+            $this->mockFolder('/Movies/Sub', [
+                $this->mockFile('nested.webm', '/Movies/Sub/nested.webm'),
+            ]),
+        ]);
+        $this->setUserFolderMap(['/Movies' => $movies]);
+
+        $videos = $this->serviceWithStoredFolders([
+            ['path' => '/Movies', 'recursive' => true, 'categoryId' => 3],
+        ])->getVideos($this->userFolder);
+
+        $this->assertSame([3, 3], array_map(static fn ($v) => $v->toArray()['categoryId'], $videos));
+    }
+
+    public function testNestedVideosTakeTheCategoryOfTheNearestConfiguredFolder(): void {
+        $concerts = $this->mockFolder('/Videos/Concerts', [
+            $this->mockFile('live.mp4', '/Videos/Concerts/live.mp4'),
+        ]);
+        $videos = $this->mockFolder('/Videos', [
+            $this->mockFile('clip.mp4', '/Videos/clip.mp4'),
+            $concerts,
+        ]);
+        $this->setUserFolderMap([
+            '/Videos' => $videos,
+            '/Videos/Concerts' => $concerts,
+        ]);
+
+        $listed = $this->serviceWithStoredFolders([
+            ['path' => '/Videos', 'recursive' => true, 'categoryId' => 1],
+            ['path' => '/Videos/Concerts', 'recursive' => true, 'categoryId' => 2],
+        ])->getVideos($this->userFolder);
+
+        $byPath = [];
+        foreach ($listed as $item) {
+            $byPath[$item->getPath()] = $item->toArray()['categoryId'];
+        }
+
+        $this->assertSame(['/Videos/clip.mp4' => 1, '/Videos/Concerts/live.mp4' => 2], $byPath);
+    }
+
+    public function testVideoOutsideAnyCategoryCarriesZero(): void {
+        $this->setUserFolderMap(['/Movies' => $this->mockFolder('/Movies', [
+            $this->mockFile('clip.mp4', '/Movies/clip.mp4'),
+        ])]);
+
+        $listed = $this->serviceWithStoredFolders([
+            ['path' => '/Movies', 'recursive' => false, 'categoryId' => 0],
+        ])->getVideos($this->userFolder);
+
+        $this->assertSame([0], array_map(static fn ($v) => $v->toArray()['categoryId'], $listed));
+    }
 }

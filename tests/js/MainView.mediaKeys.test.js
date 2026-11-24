@@ -4,10 +4,15 @@ import { mount, flushPromises } from '@vue/test-utils'
 
 /**
  * Task 7 on the "Videos" screen: here the card list is the playlist, and the media keys of a headset
- * must walk it the same way the fullscreen prev/next buttons do (stage 43: no action handlers exist, so
- * the headset is silent; YouTube registers them, which is why it works there).
+ * must walk it the same way the fullscreen prev/next buttons do (a page that registers no action handlers
+ * stays silent for the headset; YouTube registers them, which is why it works there).
  */
 vi.mock('../../src/api/videos', () => ({ getVideos: vi.fn() }))
+// MainView reads the category reference book for its filter select; this file does not care about its
+// contents, so the call is answered with an empty list instead of issuing a real request.
+vi.mock('../../src/api/categories', () => ({
+    getCategories: vi.fn(() => Promise.resolve({ data: { categories: [] } })),
+}))
 vi.mock('../../src/utils/videoUrl', () => ({ davFileUrl: (p) => `/dav${p}` }))
 vi.mock('../../src/utils/resume', () => ({
     clearPosition: vi.fn(),
@@ -98,8 +103,9 @@ describe('MainView.vue — headset media keys on the "Videos" screen', () => {
         await playFirst(wrapper)
 
         expect(mediaSession.handlers.nexttrack).toBeInstanceOf(Function)
-        // Stage 54: the first clip has no previous one on this screen (no repeat here), yet the action is
-        // registered so the platform can reach us; inside the handler the neighbour rule refuses.
+        // The first clip of the chain has no previous one on this screen (the chain is not wrapped
+        // backward), yet the action stays registered so the platform can reach us; the neighbour rule
+        // refuses inside the handler.
         expect(mediaSession.handlers.previoustrack).toBeInstanceOf(Function)
 
         mediaSession.handlers.previoustrack({ action: 'previoustrack' })
@@ -120,7 +126,7 @@ describe('MainView.vue — headset media keys on the "Videos" screen', () => {
         wrapper.unmount()
     })
 
-    it('the last clip has no next action registered (the list ends there)', async () => {
+    it('nexttrack at the last clip of the chain wraps to its first clip', async () => {
         const wrapper = await openVideos()
         await playFirst(wrapper)
         await pressAction(wrapper, 'nexttrack')
@@ -130,7 +136,7 @@ describe('MainView.vue — headset media keys on the "Videos" screen', () => {
         expect(mediaSession.handlers.nexttrack).toBeInstanceOf(Function)
         mediaSession.handlers.nexttrack({ action: 'nexttrack' })
         await wrapper.vm.$nextTick()
-        expect(playingSrc(wrapper)).toBe('/dav/Movies/c.mp4')
+        expect(playingSrc(wrapper)).toBe('/dav/Movies/a.mp4')
         wrapper.unmount()
     })
 

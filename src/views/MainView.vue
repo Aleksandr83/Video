@@ -11,9 +11,11 @@
         <template v-else>
             <div class="main-view__toolbar">
                 <input v-model="search" class="main-view__search" type="search" :placeholder="t('searchPlaceholder')">
-                <select v-model="extensionFilter" class="main-view__filter">
-                    <option value="">{{ t('allFormats') }}</option>
-                    <option v-for="ext in availableExtensions" :key="ext" :value="ext">{{ ext.toUpperCase() }}</option>
+                <select v-model="categoryFilter" class="main-view__filter">
+                    <option value="">{{ t('allCategories') }}</option>
+                    <option v-for="category in availableCategories" :key="category.id" :value="category.id">
+                        {{ category.name }}
+                    </option>
                 </select>
             </div>
 
@@ -63,6 +65,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { getVideos } from '../api/videos'
+import { getCategories } from '../api/categories'
 import { davFileUrl } from '../utils/videoUrl'
 import { clearPosition } from '../utils/resume'
 import { mountTrackMediaKeys } from '../utils/mediaSession'
@@ -79,15 +82,19 @@ const playing = ref(null)
 const playFromStart = ref(false)
 const videos = ref([])
 const search = ref('')
-const extensionFilter = ref('')
+const categories = ref([])
+const categoryFilter = ref('')
 
-const availableExtensions = computed(() => {
-    const set = new Set(
-        videos.value
-            .map((v) => (v.name.split('.').pop() || '').toLowerCase())
-            .filter(Boolean),
-    )
-    return [...set].sort()
+/**
+ * Categories offered by the filter: only those that actually have clips in the loaded list, kept in
+ * the order of the reference book (by id) so that renaming a category cannot shuffle the toolbar.
+ * An id with no row in the reference book (a category deleted while the settings still mentioned it)
+ * offers nothing and hides nothing.
+ */
+const availableCategories = computed(() => {
+    const used = new Set(videos.value.map((video) => Number(video.categoryId) || 0))
+    used.delete(0)
+    return categories.value.filter((category) => used.has(Number(category.id)))
 })
 
 /**
@@ -106,9 +113,10 @@ const filteredVideos = computed(() => {
         if (query && !video.name.toLowerCase().includes(query)) {
             return false
         }
-        if (extensionFilter.value) {
-            const ext = (video.name.split('.').pop() || '').toLowerCase()
-            if (ext !== extensionFilter.value) {
+        if (categoryFilter.value !== '') {
+            // The backend puts the id of the owning search folder's category on every clip; 0 means
+            // "no category", and such clips are only reachable through "all categories".
+            if ((Number(video.categoryId) || 0) !== Number(categoryFilter.value)) {
                 return false
             }
         }
@@ -138,23 +146,38 @@ onBeforeUnmount(() => {
     }
 })
 
-// Position of the playing clip in the filtered list (-1 when it is not there).
+/**
+ * Neighbours come from the chain the playing clip belongs to: the visible list narrowed to the category
+ * of the playing clip, in the order the list currently shows them. The toolbar filter is not consulted,
+ * so a clip picked while "all categories" is selected still continues inside its own category, and clips
+ * without a category (id 0) chain only among clips without a category.
+ */
+const playingChain = computed(() => {
+    if (!playing.value) {
+        return []
+    }
+    const category = Number(playing.value.categoryId) || 0
+
+    return filteredVideos.value.filter((video) => (Number(video.categoryId) || 0) === category)
+})
+
+// Position of the playing clip in its chain (-1 when it is not there).
 // Shared by the prev/next navigation and by the player's prev/next buttons, so
 // both use the same neighbour rules.
 const playingIndex = computed(() => {
     if (!playing.value) {
         return -1
     }
-    return filteredVideos.value.findIndex((video) => video.path === playing.value.path)
+    return playingChain.value.findIndex((video) => video.path === playing.value.path)
 })
 
+// The chain is a ring when moving forward: after its last clip comes its first one again. It is not a
+// ring when moving back. A chain of a single clip offers no neighbours in either direction.
 const hasPrevTrack = computed(() => playingIndex.value > 0)
-const hasNextTrack = computed(
-    () => playingIndex.value >= 0 && playingIndex.value < filteredVideos.value.length - 1,
-)
+const hasNextTrack = computed(() => playingChain.value.length > 1 && playingIndex.value >= 0)
 
-// Stage 54: both directions stay registered while a clip plays (a removed action cannot be delivered to us,
-// stage 53-A); the neighbour rule of task 6 refuses inside the handler. Closing the player takes both away.
+// Both directions stay registered while a clip plays (a removed Media Session action cannot be
+// delivered to us); the neighbour rule refuses inside the handler. Closing the player takes both away.
 function syncMediaKeys() {
     if (mediaKeys) {
         mediaKeys.setAvailability({
@@ -167,9 +190,28 @@ function syncMediaKeys() {
 
 watch([hasPrevTrack, hasNextTrack], syncMediaKeys)
 
-function nextManual() {
+/**
+ * The neighbour of the playing clip inside its own chain: +1 moves forward and wraps to the first clip
+ * of the chain, -1 moves back and stops at the first clip. Nothing is returned when the chain holds a
+ * single clip or the playing clip is not in it.
+ */
+function chainNeighbour(step) {
+    const chain = playingChain.value
     const index = playingIndex.value
-    const nextVideo = index >= 0 ? filteredVideos.value[index + 1] : undefined
+
+    if (index < 0 || chain.length < 2) {
+        return undefined
+    }
+
+    if (step > 0) {
+        return chain[(index + 1) % chain.length]
+    }
+
+    return index > 0 ? chain[index - 1] : undefined
+}
+
+function nextManual() {
+    const nextVideo = chainNeighbour(1)
     if (nextVideo) {
         // When going forward to a video, drop its saved position so it starts
         // from the beginning instead of resuming at (near) the end.
@@ -180,8 +222,7 @@ function nextManual() {
 }
 
 function prevManual() {
-    const index = playingIndex.value
-    const prevVideo = index > 0 ? filteredVideos.value[index - 1] : undefined
+    const prevVideo = chainNeighbour(-1)
     if (prevVideo) {
         // When going back to a video, drop its saved position so it starts
         // from the beginning instead of resuming at (near) the end.
@@ -201,13 +242,29 @@ async function load() {
         configured.value = data.configured
         videos.value = data.videos || []
         setViewCounts(data.views || {})
+        // The category reference data only feeds the filter select, so it is fetched on its own: the
+        // list is on screen as soon as the clips arrive, a slow or failing category request cannot
+        // hold the whole screen back, and a failure simply leaves the filter with one option.
+        loadCategories()
     } catch (e) {
         error.value = t('videosLoadError')
         configured.value = false
         videos.value = []
+        categories.value = []
     } finally {
         loading.value = false
     }
+}
+
+/** Reads the category reference book; a failure leaves the filter with its "all categories" option. */
+function loadCategories() {
+    getCategories()
+        .then((response) => {
+            categories.value = response?.data?.categories || []
+        })
+        .catch(() => {
+            categories.value = []
+        })
 }
 
 // Manual pick from a card: keep the resume feature.
@@ -216,16 +273,15 @@ function playVideo(video) {
     playing.value = video
 }
 
-// After a video finishes, start the next one in the current (filtered) list,
-// like YouTube. Auto-advanced tracks start from the beginning. Stops when the
-// end of the list is reached.
+// After a video finishes, start the next clip of the playing clip's own chain (the same neighbour the
+// prev/next buttons and the media keys use). Auto-advanced clips start from the beginning. A chain of a
+// single clip ends playback, exactly like a chain whose only clip is the playing one.
 function onEnded() {
-    if (!playing.value || !filteredVideos.value.length) {
+    if (!playing.value || !playingChain.value.length) {
         playing.value = null
         return
     }
-    const index = playingIndex.value
-    const nextVideo = index >= 0 ? filteredVideos.value[index + 1] || null : null
+    const nextVideo = chainNeighbour(1) || null
     playFromStart.value = true
     playing.value = nextVideo
 }
@@ -327,17 +383,17 @@ function onEnded() {
    Phone toolbar: the filter stays, pinned to the right edge, the search
    takes the free space.
 
-   The format filter remains on the Videos screen until the new filter
-   feature replaces its contents (the user keeps it meanwhile), but a phone
-   row should not leave a dead band on the right: measured in Chromium at
-   411x917 before this rule the search was 177 px and the filter's box ended
-   at 312 px while the toolbar spanned to 395 px — 83 px of the row went
-   unused. flex-grow on the search absorbs the free space (it sits between
-   the navigation button and the filter, so the filter is pushed flush to the
-   right edge); min-width: 0 lets the search shrink on the narrowest phones
-   instead of pushing the filter out of the row. A desktop (fine pointer or a
-   wide window) keeps the compact natural widths — measured unchanged at
-   177 px search on 1280 px.
+   The filter select offers video categories ("all categories" plus the
+   categories that have clips in the loaded list). A phone row should not
+   leave a dead band on the right: measured in Chromium at 411x917 without
+   this rule the search was 177 px and the filter's box ended at 312 px while
+   the toolbar spanned to 395 px — 83 px of the row went unused. flex-grow on
+   the search absorbs the free space (it sits between the navigation button
+   and the filter, so the filter is pushed flush to the right edge);
+   min-width: 0 lets the search shrink on the narrowest phones instead of
+   pushing the filter out of the row. A desktop (fine pointer or a wide
+   window) keeps the compact natural widths — measured unchanged at 177 px
+   search on 1280 px.
    ------------------------------------------------------------------------- */
 @media (pointer: coarse) and (max-width: 1024px) {
     .main-view__search {

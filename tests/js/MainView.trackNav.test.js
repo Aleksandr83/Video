@@ -6,6 +6,12 @@ vi.mock('../../src/api/videos', () => ({
     getVideos: vi.fn(),
 }))
 
+// MainView reads the category reference book for its filter select; these tests do not care about its
+// contents, so the call is answered with an empty list instead of issuing a real request.
+vi.mock('../../src/api/categories', () => ({
+    getCategories: vi.fn(() => Promise.resolve({ data: { categories: [] } })),
+}))
+
 vi.mock('../../src/utils/videoUrl', () => ({
     davFileUrl: (path) => `/dav${String(path).startsWith('/') ? '' : '/'}${path}`,
 }))
@@ -100,11 +106,11 @@ describe('MainView.vue — availability of fullscreen prev/next', () => {
         expect(availability(wrapper)).toEqual({ hasPrevTrack: 'true', hasNextTrack: 'true' })
     })
 
-    it('last clip of the list: prev is available, next is unavailable', async () => {
+    it('last clip of the chain: prev is available, next wraps to the first clip of the chain', async () => {
         const wrapper = await mountWithVideos(videos)
         await playCard(wrapper, 2)
 
-        expect(availability(wrapper)).toEqual({ hasPrevTrack: 'true', hasNextTrack: 'false' })
+        expect(availability(wrapper)).toEqual({ hasPrevTrack: 'true', hasNextTrack: 'true' })
     })
 
     it('a single clip in the list has no neighbours at all', async () => {
@@ -117,7 +123,7 @@ describe('MainView.vue — availability of fullscreen prev/next', () => {
     it('availability follows the filtered list, not the raw one', async () => {
         const wrapper = await mountWithVideos(videos)
         await playCard(wrapper, 2)
-        expect(availability(wrapper)).toEqual({ hasPrevTrack: 'true', hasNextTrack: 'false' })
+        expect(availability(wrapper)).toEqual({ hasPrevTrack: 'true', hasNextTrack: 'true' })
 
         // Filter the list so that only the playing clip is left in it.
         await wrapper.find('.main-view__search').setValue('c.mp4')
@@ -142,7 +148,7 @@ describe('MainView.vue — availability of fullscreen prev/next', () => {
         expect(availability(wrapper)).toEqual({ hasPrevTrack: 'false', hasNextTrack: 'true' })
     })
 
-    it('prev at the first clip and next at the last clip change nothing', async () => {
+    it('prev at the first clip changes nothing; next at the last clip wraps to the first one', async () => {
         const wrapper = await mountWithVideos(videos)
         await playCard(wrapper, 0)
 
@@ -151,7 +157,7 @@ describe('MainView.vue — availability of fullscreen prev/next', () => {
 
         await playCard(wrapper, 2)
         await emitFromPlayer(wrapper, 'next')
-        expect(player(wrapper).attributes()['data-src']).toBe('/dav/Movies/c.mp4')
-        expect(clearPosition).not.toHaveBeenCalled()
+        expect(player(wrapper).attributes()['data-src']).toBe('/dav/Movies/a.mp4')
+        expect(clearPosition).toHaveBeenCalledWith('/Movies/a.mp4')
     })
 })

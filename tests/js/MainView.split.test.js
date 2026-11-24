@@ -6,6 +6,12 @@ vi.mock('../../src/api/videos', () => ({
     getVideos: vi.fn(),
 }))
 
+// MainView reads the category reference book for its filter select; the screen under test does not
+// care about its contents, so the call is answered with an empty list instead of a real request.
+vi.mock('../../src/api/categories', () => ({
+    getCategories: vi.fn(() => Promise.resolve({ data: { categories: [] } })),
+}))
+
 vi.mock('../../src/utils/videoUrl', () => ({
     davFileUrl: (path) => `/dav${String(path).startsWith('/') ? '' : '/'}${path}`,
 }))

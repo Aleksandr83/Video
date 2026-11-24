@@ -4,6 +4,7 @@ import App from './App.vue'
 import MainView from './views/MainView.vue'
 import SettingsView from './views/SettingsView.vue'
 import PlaylistsView from './views/PlaylistsView.vue'
+import AboutView from './views/AboutView.vue'
 import './assets/app.css'
 
 // Entry point of the Video app. The bundle is loaded by templates/main.php
@@ -14,6 +15,7 @@ const router = createRouter({
         { path: '/', name: 'home', component: MainView },
         { path: '/settings', name: 'settings', component: SettingsView },
         { path: '/playlists', name: 'playlists', component: PlaylistsView },
+        { path: '/about', name: 'about', component: AboutView },
     ],
 })
 

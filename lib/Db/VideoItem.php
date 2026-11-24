@@ -8,6 +8,10 @@ use OCP\Files\Node;
 
 /**
  * Value object describing one video file found in the storage.
+ *
+ * `categoryId` is filled in by the listing service: a clip has a category only through the configured
+ * search folder it was found in, and 0 means "no category". The name itself is never carried here, so
+ * renaming a category cannot leave this list pointing at a category that no longer exists.
  */
 class VideoItem {
     public function __construct(
@@ -16,6 +20,7 @@ class VideoItem {
         private string $name,
         private int $size,
         private int $mtime,
+        private int $categoryId = 0,
     ) {
     }
 
@@ -67,8 +72,16 @@ class VideoItem {
         return $this->mtime;
     }
 
+    public function getCategoryId(): int {
+        return $this->categoryId;
+    }
+
+    public function setCategoryId(int $categoryId): void {
+        $this->categoryId = $categoryId;
+    }
+
     /**
-     * @return array{fileId: int, path: string, name: string, size: int, mtime: int}
+     * @return array{fileId: int, path: string, name: string, size: int, mtime: int, categoryId: int}
      */
     public function toArray(): array {
         return [
@@ -77,6 +90,7 @@ class VideoItem {
             'name' => $this->name,
             'size' => $this->size,
             'mtime' => $this->mtime,
+            'categoryId' => $this->categoryId,
         ];
     }
 }

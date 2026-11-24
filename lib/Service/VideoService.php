@@ -31,8 +31,9 @@ class VideoService {
      */
     public function getVideos(Folder $userFolder, string $currentPath = ''): array {
         $videos = [];
+        $folderSettings = $this->settings->getFolders();
 
-        foreach ($this->settings->getFolders() as $folderSetting) {
+        foreach ($folderSettings as $folderSetting) {
             $rootPath = rtrim($folderSetting->getPath(), '/');
             $recursive = $folderSetting->isRecursive();
 
@@ -62,6 +63,13 @@ class VideoService {
             foreach ($this->scan($node, true) as $video) {
                 $videos[] = $video;
             }
+        }
+
+        // A clip belongs to the category of the configured folder it was found in. Resolved over the
+        // whole listing rather than per root: a configured folder nested inside another one claims the
+        // videos below it, and a video keeps no category when the nearest folder has none.
+        foreach ($videos as $video) {
+            $video->setCategoryId(SettingsService::categoryIdForPathIn($folderSettings, $video->getPath()));
         }
 
         usort(
